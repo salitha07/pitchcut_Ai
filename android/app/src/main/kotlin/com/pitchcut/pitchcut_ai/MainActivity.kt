@@ -1,0 +1,5 @@
+package com.pitchcut.pitchcut_ai
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
