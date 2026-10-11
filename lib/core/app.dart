@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 
+import 'router/app_router.dart';
+import 'theme/app_theme.dart';
+
 class PitchCutApp extends StatelessWidget {
   const PitchCutApp({super.key});
 
   @override
-  Widget build(BuildContext context) => const MaterialApp(
+  Widget build(BuildContext context) => MaterialApp.router(
+    debugShowCheckedModeBanner: false,
     title: 'PitchCut AI',
-    home: Scaffold(body: Center(child: Text('PitchCut AI is running'))),
+    theme: AppTheme.light,
+    darkTheme: AppTheme.dark,
+    routerConfig: appRouter,
   );
 }
