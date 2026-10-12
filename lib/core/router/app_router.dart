@@ -9,6 +9,7 @@ import '../../features/history/history_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import 'app_shell.dart';
+import '../../features/dev/widget_gallery_screen.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/home',
@@ -17,6 +18,7 @@ final appRouter = GoRouter(
     GoRoute(path: '/editor', builder: (c, s) => const EditorScreen()),
     GoRoute(path: '/analysis', builder: (c, s) => const AnalysisScreen()),
     GoRoute(path: '/captions', builder: (c, s) => const CaptionsScreen()),
+    GoRoute(path: '/gallery', builder: (c, s) => const WidgetGalleryScreen()),
     StatefulShellRoute.indexedStack(
       builder: (c, s, shell) => AppShell(navigationShell: shell),
       branches: [
@@ -38,6 +40,14 @@ final appRouter = GoRouter(
         StatefulShellBranch(
           routes: [
             GoRoute(path: '/profile', builder: (c, s) => const ProfileScreen()),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/gallery',
+              builder: (c, s) => const WidgetGalleryScreen(),
+            ),
           ],
         ),
       ],

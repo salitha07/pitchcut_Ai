@@ -11,6 +11,11 @@ class HomeScreen extends StatelessWidget {
     title: 'Home',
     owner: 'M1',
     children: [
+      const SizedBox(height: 8),
+      OutlinedButton(
+        onPressed: () => context.push('/gallery'),
+        child: const Text('Widget gallery'),
+      ),
       FilledButton(
         onPressed: () => context.push('/editor'),
         child: const Text('Open Editor'),
