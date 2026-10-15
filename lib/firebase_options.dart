@@ -62,7 +62,6 @@ class DefaultFirebaseOptions {
     projectId: 'pitchcut-ai-ae53c',
     storageBucket: 'pitchcut-ai-ae53c.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyC7u3UcaT2IDX9Q4yUR-6hGK9bMPn_pJfY',
     appId: '1:31961981431:ios:8c3c8805e786f54bca0ef2',
