@@ -12,25 +12,29 @@ class ProjectRepository {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
 
+  // Get the signed-in user's ID.
   String get _userId {
     final user = _auth.currentUser;
+
     if (user == null) {
       throw StateError('Please log in to manage projects.');
     }
+
     return user.uid;
   }
 
+  // Get the signed-in user's projects collection.
   CollectionReference<Map<String, dynamic>> get _projects =>
       _firestore.collection('users').doc(_userId).collection('projects');
 
-  // Create a project
+  // Create a project.
   Future<void> createProject(Project project) async {
     final doc = _projects.doc(project.id);
 
     await doc.set({...project.toJson(), 'userId': _userId});
   }
 
-  // Get all projects belonging to the signed-in user
+  // Get all projects belonging to the signed-in user.
   Future<List<Project>> getProjects() async {
     final snapshot = await _projects.get();
 
@@ -39,7 +43,7 @@ class ProjectRepository {
     }).toList();
   }
 
-  // Listen for project changes in real time
+  // Listen for project changes in real time.
   Stream<List<Project>> watchProjects() {
     return _projects.snapshots().map((snapshot) {
       return snapshot.docs.map((doc) {
@@ -48,7 +52,7 @@ class ProjectRepository {
     });
   }
 
-  // Update a project
+  // Update a project.
   Future<void> updateProject(Project project) async {
     if (project.userId != _userId) {
       throw StateError('You cannot update another user\'s project.');
@@ -57,7 +61,28 @@ class ProjectRepository {
     await _projects.doc(project.id).update(project.toJson());
   }
 
-  // Delete a project and its stored clip documents
+  // Delete every document in a collection in batches.
+  Future<void> _deleteCollection(
+    CollectionReference<Map<String, dynamic>> collection,
+  ) async {
+    while (true) {
+      final snapshot = await collection.limit(400).get();
+
+      if (snapshot.docs.isEmpty) {
+        break;
+      }
+
+      final batch = _firestore.batch();
+
+      for (final document in snapshot.docs) {
+        batch.delete(document.reference);
+      }
+
+      await batch.commit();
+    }
+  }
+
+  // Delete a project and its clips, captions, and reports.
   Future<void> deleteProject(String projectId) async {
     final projectRef = _projects.doc(projectId);
     final projectSnapshot = await projectRef.get();
@@ -66,20 +91,18 @@ class ProjectRepository {
       return;
     }
 
-    final clips = projectRef.collection('clips');
-    final clipSnapshot = await clips.get();
+    // Delete the project's subcollections first.
+    await _deleteCollection(projectRef.collection('clips'));
 
-    final batch = _firestore.batch();
+    await _deleteCollection(projectRef.collection('captions'));
 
-    for (final clip in clipSnapshot.docs) {
-      batch.delete(clip.reference);
-    }
+    await _deleteCollection(projectRef.collection('reports'));
 
-    batch.delete(projectRef);
-    await batch.commit();
+    // Delete the project document last.
+    await projectRef.delete();
   }
 
-  // Add a clip to a project
+  // Add a clip to a project.
   Future<void> addClip(Clip clip) async {
     final projectRef = _projects.doc(clip.projectId);
     final projectSnapshot = await projectRef.get();
@@ -89,7 +112,6 @@ class ProjectRepository {
     }
 
     final clipRef = projectRef.collection('clips').doc(clip.id);
-
     final batch = _firestore.batch();
 
     batch.set(clipRef, clip.toJson());
@@ -102,7 +124,7 @@ class ProjectRepository {
     await batch.commit();
   }
 
-  // Get clips for a project
+  // Get clips for a project, sorted by order.
   Future<List<Clip>> getClips(String projectId) async {
     final projectRef = _projects.doc(projectId);
     final projectSnapshot = await projectRef.get();
@@ -113,12 +135,11 @@ class ProjectRepository {
 
     final snapshot = await projectRef.collection('clips').get();
 
-    return snapshot.docs.map((doc) {
-      return Clip.fromJson(doc.data());
-    }).toList()..sort((a, b) => a.order.compareTo(b.order));
+    return snapshot.docs.map((doc) => Clip.fromJson(doc.data())).toList()
+      ..sort((a, b) => a.order.compareTo(b.order));
   }
 
-  // Update a clip
+  // Update a clip.
   Future<void> updateClip(Clip clip) async {
     final projectRef = _projects.doc(clip.projectId);
     final projectSnapshot = await projectRef.get();
@@ -130,7 +151,7 @@ class ProjectRepository {
     await projectRef.collection('clips').doc(clip.id).update(clip.toJson());
   }
 
-  // Delete a clip
+  // Delete a clip and remove its ID from the project.
   Future<void> deleteClip(String projectId, String clipId) async {
     final projectRef = _projects.doc(projectId);
     final projectSnapshot = await projectRef.get();
