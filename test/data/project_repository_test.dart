@@ -12,6 +12,7 @@ void main() {
 
   setUp(() {
     firestore = FakeFirebaseFirestore();
+
     auth = MockFirebaseAuth(
       signedIn: true,
       mockUser: MockUser(uid: 'test-user-123'),
@@ -96,6 +97,7 @@ void main() {
       expect(clips.last.id, 'clip-1');
 
       final projects = await repository.getProjects();
+
       expect(projects.single.clipIds, containsAll(['clip-1', 'clip-2']));
     });
 
