@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import '../models/project.dart';
 import '../models/clip.dart';
+import '../models/project.dart';
 import 'storage_repository.dart';
 
 class ProjectRepository {
@@ -57,13 +57,16 @@ class ProjectRepository {
     });
   }
 
-  // Update a project.
+  // Update a project owned by the signed-in user.
   Future<void> updateProject(Project project) async {
     if (project.userId != _userId) {
       throw StateError('You cannot update another user\'s project.');
     }
 
-    await _projects.doc(project.id).update(project.toJson());
+    await _projects.doc(project.id).update({
+      ...project.toJson(),
+      'userId': _userId,
+    });
   }
 
   // Delete every document in a collection in batches.
@@ -87,7 +90,7 @@ class ProjectRepository {
     }
   }
 
-  // Delete a project, its Firestore data, and Storage files.
+  // Delete a project, its Firestore subcollections, and Storage files.
   Future<void> deleteProject(String projectId) async {
     final projectRef = _projects.doc(projectId);
     final projectSnapshot = await projectRef.get();
@@ -96,13 +99,14 @@ class ProjectRepository {
       return;
     }
 
-    // Delete Storage files first if a repository was provided.
+    // Delete files first when StorageRepository is provided.
     final storageRepository = _storageRepository;
+
     if (storageRepository != null) {
       await storageRepository.deleteProjectFiles(projectId);
     }
 
-    // Delete the project's Firestore subcollections.
+    // Delete Firestore subcollections.
     await _deleteCollection(projectRef.collection('clips'));
     await _deleteCollection(projectRef.collection('captions'));
     await _deleteCollection(projectRef.collection('reports'));
@@ -111,7 +115,7 @@ class ProjectRepository {
     await projectRef.delete();
   }
 
-  // Add a clip to a project.
+  // Add a clip to an existing project.
   Future<void> addClip(Clip clip) async {
     final projectRef = _projects.doc(clip.projectId);
     final projectSnapshot = await projectRef.get();
@@ -144,11 +148,16 @@ class ProjectRepository {
 
     final snapshot = await projectRef.collection('clips').get();
 
-    return snapshot.docs.map((doc) => Clip.fromJson(doc.data())).toList()
-      ..sort((a, b) => a.order.compareTo(b.order));
+    final clips = snapshot.docs.map((doc) {
+      return Clip.fromJson(doc.data());
+    }).toList();
+
+    clips.sort((a, b) => a.order.compareTo(b.order));
+
+    return clips;
   }
 
-  // Update a clip.
+  // Update an existing clip.
   Future<void> updateClip(Clip clip) async {
     final projectRef = _projects.doc(clip.projectId);
     final projectSnapshot = await projectRef.get();
@@ -158,6 +167,10 @@ class ProjectRepository {
     }
 
     await projectRef.collection('clips').doc(clip.id).update(clip.toJson());
+
+    await projectRef.update({
+      'updatedAt': DateTime.now().toUtc().toIso8601String(),
+    });
   }
 
   // Delete a clip and remove its ID from the project.
@@ -169,9 +182,23 @@ class ProjectRepository {
       throw StateError('Project not found.');
     }
 
+    final clipRef = projectRef.collection('clips').doc(clipId);
+    final clipSnapshot = await clipRef.get();
+
+    if (!clipSnapshot.exists) {
+      return;
+    }
+
+    // Delete the associated Storage video if Storage is connected.
+    final storageRepository = _storageRepository;
+
+    if (storageRepository != null) {
+      await storageRepository.deleteVideo(projectId: projectId, clipId: clipId);
+    }
+
     final batch = _firestore.batch();
 
-    batch.delete(projectRef.collection('clips').doc(clipId));
+    batch.delete(clipRef);
 
     batch.update(projectRef, {
       'clipIds': FieldValue.arrayRemove([clipId]),
