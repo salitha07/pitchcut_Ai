@@ -3,14 +3,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/project.dart';
 import '../models/clip.dart';
+import 'storage_repository.dart';
 
 class ProjectRepository {
-  ProjectRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
-    : _firestore = firestore ?? FirebaseFirestore.instance,
-      _auth = auth ?? FirebaseAuth.instance;
+  ProjectRepository({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    this._storageRepository,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _auth = auth ?? FirebaseAuth.instance;
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
+  final StorageRepository? _storageRepository;
 
   // Get the signed-in user's ID.
   String get _userId {
@@ -82,7 +87,7 @@ class ProjectRepository {
     }
   }
 
-  // Delete a project and its clips, captions, and reports.
+  // Delete a project, its Firestore data, and Storage files.
   Future<void> deleteProject(String projectId) async {
     final projectRef = _projects.doc(projectId);
     final projectSnapshot = await projectRef.get();
@@ -91,11 +96,15 @@ class ProjectRepository {
       return;
     }
 
-    // Delete the project's subcollections first.
+    // Delete Storage files first if a repository was provided.
+    final storageRepository = _storageRepository;
+    if (storageRepository != null) {
+      await storageRepository.deleteProjectFiles(projectId);
+    }
+
+    // Delete the project's Firestore subcollections.
     await _deleteCollection(projectRef.collection('clips'));
-
     await _deleteCollection(projectRef.collection('captions'));
-
     await _deleteCollection(projectRef.collection('reports'));
 
     // Delete the project document last.
