@@ -173,7 +173,7 @@ class ProjectRepository {
     });
   }
 
-  // Delete a clip and remove its ID from the project.
+  // Delete a clip, its Storage files, and remove its ID from the project.
   Future<void> deleteClip(String projectId, String clipId) async {
     final projectRef = _projects.doc(projectId);
     final projectSnapshot = await projectRef.get();
@@ -189,11 +189,16 @@ class ProjectRepository {
       return;
     }
 
-    // Delete the associated Storage video if Storage is connected.
+    // Delete associated Storage files if Storage is connected.
     final storageRepository = _storageRepository;
 
     if (storageRepository != null) {
       await storageRepository.deleteVideo(projectId: projectId, clipId: clipId);
+
+      await storageRepository.deleteSensorData(
+        projectId: projectId,
+        clipId: clipId,
+      );
     }
 
     final batch = _firestore.batch();

@@ -23,7 +23,7 @@ class StorageRepository {
     return user.uid;
   }
 
-  // Get a reference to the signed-in user's project folder.
+  // Get the signed-in user's project folder.
   // Check authentication before accessing Firebase Storage.
   Reference _userFolder(String projectId) {
     final userId = _userId;
@@ -120,6 +120,18 @@ class StorageRepository {
     );
 
     return snapshot.ref.getDownloadURL();
+  }
+
+  // Delete sensor-data JSON for a clip.
+  Future<void> deleteSensorData({
+    required String projectId,
+    required String clipId,
+  }) async {
+    final reference = _userFolder(projectId)
+        .child('clips')
+        .child('$clipId.json');
+
+    await reference.delete();
   }
 
   // Delete all files belonging to a project.
