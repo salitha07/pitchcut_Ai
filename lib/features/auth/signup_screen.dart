@@ -38,7 +38,7 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await _authRepository.signUp(
+      await _authRepository.signUpWithProfile(
         email: _emailController.text,
         password: _passwordController.text,
         displayName: _nameController.text,

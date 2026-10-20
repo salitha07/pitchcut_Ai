@@ -1,3 +1,4 @@
+
 import 'package:firebase_auth/firebase_auth.dart';
 
 class AuthRepository {
@@ -6,14 +7,23 @@ class AuthRepository {
 
   final FirebaseAuth _auth;
 
-  /// Currently signed-in user.
   User? get currentUser => _auth.currentUser;
 
-  /// Emits authentication changes.
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  /// Contract: emits the signed-in user's UID, or null.
+  Stream<String?> authStateChanges() {
+    return _auth.authStateChanges().map((user) => user?.uid);
+  }
 
-  /// Register a new user with email and password.
-  Future<UserCredential> signUp({
+  /// Contract-compatible signup.
+  Future<void> signUp(String email, String password) async {
+    await _auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+  }
+
+  /// Existing signup screen: preserves display name.
+  Future<UserCredential> signUpWithProfile({
     required String email,
     required String password,
     required String displayName,
@@ -29,7 +39,15 @@ class AuthRepository {
     return credential;
   }
 
-  /// Sign in an existing user.
+  /// Contract-compatible sign in.
+  Future<void> signIn(String email, String password) async {
+    await _auth.signInWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+  }
+
+  /// Existing login screen: preserves its current API.
   Future<UserCredential> login({
     required String email,
     required String password,
@@ -40,6 +58,9 @@ class AuthRepository {
     );
   }
 
-  /// Sign out the current user.
-  Future<void> logout() => _auth.signOut();
+  /// Contract-compatible sign out.
+  Future<void> signOut() => _auth.signOut();
+
+  /// Existing profile screen API.
+  Future<void> logout() => signOut();
 }
