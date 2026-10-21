@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -11,6 +12,7 @@ class StorageRepository {
   final FirebaseStorage _storage;
   final FirebaseAuth _auth;
 
+  // Get the signed-in user's ID.
   String get _userId {
     final user = _auth.currentUser;
 
@@ -21,17 +23,20 @@ class StorageRepository {
     return user.uid;
   }
 
-  // Get a reference to the signed-in user's storage folder.
+  // Get the signed-in user's project folder.
+  // Check authentication before accessing Firebase Storage.
   Reference _userFolder(String projectId) {
+    final userId = _userId;
+
     return _storage
         .ref()
         .child('users')
-        .child(_userId)
+        .child(userId)
         .child('projects')
         .child(projectId);
   }
 
-  // Upload a video file and return its download URL.
+  // Upload a video and return its download URL.
   Future<String> uploadVideo({
     required String projectId,
     required String clipId,
@@ -42,15 +47,16 @@ class StorageRepository {
       throw StateError('Video file does not exist.');
     }
 
-    final fileName = '$clipId.mp4';
-    final reference = _userFolder(projectId).child('clips').child(fileName);
+    final reference = _userFolder(projectId)
+        .child('clips')
+        .child('$clipId.mp4');
 
     final task = reference.putFile(
       file,
       SettableMetadata(contentType: 'video/mp4'),
     );
 
-    task.snapshotEvents.listen((snapshot) {
+    final subscription = task.snapshotEvents.listen((snapshot) {
       final total = snapshot.totalBytes;
 
       if (total > 0) {
@@ -58,8 +64,16 @@ class StorageRepository {
       }
     });
 
-    final snapshot = await task;
-    return snapshot.ref.getDownloadURL();
+    try {
+      final snapshot = await task;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+
+      onProgress?.call(1.0);
+
+      return downloadUrl;
+    } finally {
+      await subscription.cancel();
+    }
   }
 
   // Get the download URL of an uploaded video.
@@ -67,10 +81,11 @@ class StorageRepository {
     required String projectId,
     required String clipId,
   }) async {
-    return _userFolder(projectId)
+    final reference = _userFolder(projectId)
         .child('clips')
-        .child('$clipId.mp4')
-        .getDownloadURL();
+        .child('$clipId.mp4');
+
+    return reference.getDownloadURL();
   }
 
   // Delete an uploaded video.
@@ -78,10 +93,14 @@ class StorageRepository {
     required String projectId,
     required String clipId,
   }) async {
-    await _userFolder(projectId).child('clips').child('$clipId.mp4').delete();
+    final reference = _userFolder(projectId)
+        .child('clips')
+        .child('$clipId.mp4');
+
+    await reference.delete();
   }
 
-  // Upload a sensor-data file.
+  // Upload sensor data in JSON format.
   Future<String> uploadSensorData({
     required String projectId,
     required String clipId,
@@ -103,20 +122,26 @@ class StorageRepository {
     return snapshot.ref.getDownloadURL();
   }
 
-  // Delete a project's uploaded files.
-  Future<void> deleteProjectFiles(String projectId) async {
-    final projectFolder = _userFolder(projectId);
-    final result = await projectFolder.listAll();
+  // Delete sensor-data JSON for a clip.
+  Future<void> deleteSensorData({
+    required String projectId,
+    required String clipId,
+  }) async {
+    final reference = _userFolder(projectId)
+        .child('clips')
+        .child('$clipId.json');
 
-    for (final item in result.items) {
-      await item.delete();
-    }
-
-    for (final prefix in result.prefixes) {
-      await _deleteFolderContents(prefix);
-    }
+    await reference.delete();
   }
 
+  // Delete all files belonging to a project.
+  Future<void> deleteProjectFiles(String projectId) async {
+    final projectFolder = _userFolder(projectId);
+
+    await _deleteFolderContents(projectFolder);
+  }
+
+  // Recursively delete files inside a Storage folder.
   Future<void> _deleteFolderContents(Reference folder) async {
     final result = await folder.listAll();
 

@@ -1,1 +1,29 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"pitchcut-ai-ae53c","appId":"1:31961981431:android:7bd0545ac42f7538ca0ef2","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"pitchcut-ai-ae53c","configurations":{"android":"1:31961981431:android:7bd0545ac42f7538ca0ef2","ios":"1:31961981431:ios:8c3c8805e786f54bca0ef2","web":"1:31961981431:web:853ae6216211d67cca0ef2"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "pitchcut-ai-ae53c",
+          "appId": "1:31961981431:android:7bd0545ac42f7538ca0ef2",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "pitchcut-ai-ae53c",
+          "configurations": {
+            "android": "1:31961981431:android:7bd0545ac42f7538ca0ef2",
+            "ios": "1:31961981431:ios:8c3c8805e786f54bca0ef2",
+            "web": "1:31961981431:web:853ae6216211d67cca0ef2"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "database": "(default)",
+    "location": "asia-south1",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}
