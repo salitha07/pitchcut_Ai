@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import 'widgets/framing_guide.dart';
+
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
 
@@ -23,10 +25,18 @@ class _CaptureScreenState extends State<CaptureScreen>
   bool _loading = true;
   bool _busy = false;
   bool _isRecording = false;
+  bool _isCountingDown = false;
+  bool _showFramingGuide = true;
 
   String? _error;
   XFile? _recordedVideo;
 
+  // Countdown settings
+  int _selectedCountdown = 3;
+  int _countdownRemaining = 0;
+  int _countdownToken = 0;
+
+  // Recording timer
   Timer? _timer;
   final Stopwatch _stopwatch = Stopwatch();
   Duration _recordingDuration = Duration.zero;
@@ -39,7 +49,9 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   Future<void> _initializeCamera() async {
-    if (!mounted) return;
+    if (!mounted || _isRecording || _isCountingDown || _busy) {
+      return;
+    }
 
     setState(() {
       _loading = true;
@@ -89,8 +101,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     final controller = CameraController(
       _cameras[index],
 
-      // OPTIMIZATION 1:
-      // Lower camera resolution for smoother Chrome testing.
+      // Low resolution for Chrome performance testing.
       ResolutionPreset.low,
 
       enableAudio: true,
@@ -121,6 +132,7 @@ class _CaptureScreenState extends State<CaptureScreen>
         _loading ||
         _busy ||
         _isRecording ||
+        _isCountingDown ||
         _recordedVideo != null) {
       return;
     }
@@ -140,6 +152,74 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
   }
 
+  // --------------------------------
+  // COUNTDOWN
+  // --------------------------------
+
+  Future<void> _startCountdown() async {
+    if (_busy ||
+        _loading ||
+        _isRecording ||
+        _isCountingDown ||
+        _recordedVideo != null) {
+      return;
+    }
+
+    final controller = _controller;
+
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+
+    if (_selectedCountdown == 0) {
+      await _startRecording();
+      return;
+    }
+
+    final token = ++_countdownToken;
+
+    setState(() {
+      _isCountingDown = true;
+      _countdownRemaining = _selectedCountdown;
+      _error = null;
+    });
+
+    while (_countdownRemaining > 0) {
+      await Future<void>.delayed(const Duration(seconds: 1));
+
+      if (!mounted || token != _countdownToken || !_isCountingDown) {
+        return;
+      }
+
+      setState(() {
+        _countdownRemaining--;
+      });
+    }
+
+    if (!mounted || token != _countdownToken) return;
+
+    setState(() {
+      _isCountingDown = false;
+    });
+
+    await _startRecording();
+  }
+
+  void _cancelCountdown() {
+    _countdownToken++;
+
+    if (!mounted) return;
+
+    setState(() {
+      _isCountingDown = false;
+      _countdownRemaining = 0;
+    });
+  }
+
+  // --------------------------------
+  // RECORDING TIMER
+  // --------------------------------
+
   void _startTimer() {
     _timer?.cancel();
 
@@ -149,9 +229,7 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     _recordingDuration = Duration.zero;
 
-    // OPTIMIZATION 2:
-    // Update the recording timer once per second.
-    // This reduces unnecessary widget rebuilds.
+    // Update UI only once per second.
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
 
@@ -164,6 +242,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   void _stopTimer() {
     _timer?.cancel();
     _timer = null;
+
     _stopwatch.stop();
     _recordingDuration = _stopwatch.elapsed;
   }
@@ -176,6 +255,10 @@ class _CaptureScreenState extends State<CaptureScreen>
         '${seconds.toString().padLeft(2, '0')}';
   }
 
+  // --------------------------------
+  // VIDEO RECORDING
+  // --------------------------------
+
   Future<void> _startRecording() async {
     final controller = _controller;
 
@@ -183,7 +266,8 @@ class _CaptureScreenState extends State<CaptureScreen>
         !controller.value.isInitialized ||
         controller.value.isRecordingVideo ||
         _busy ||
-        _loading) {
+        _loading ||
+        _isCountingDown) {
       return;
     }
 
@@ -196,7 +280,10 @@ class _CaptureScreenState extends State<CaptureScreen>
       await _clearRecordedVideo();
       await controller.startVideoRecording();
 
-      if (!mounted) return;
+      if (!mounted) {
+        await controller.stopVideoRecording();
+        return;
+      }
 
       setState(() {
         _isRecording = true;
@@ -235,9 +322,8 @@ class _CaptureScreenState extends State<CaptureScreen>
         _recordedVideo = video;
       });
 
-      // Web recordings usually use a browser blob URL.
-      // Android local-file playback will be added later.
       if (kIsWeb) {
+        // Web recordings commonly have a browser blob URL.
         final player = VideoPlayerController.networkUrl(Uri.parse(video.path));
 
         await player.initialize();
@@ -250,9 +336,11 @@ class _CaptureScreenState extends State<CaptureScreen>
         await player.setLooping(true);
 
         _videoController = player;
-
         setState(() {});
       }
+
+      // Android file playback and permanent saving
+      // will be implemented in the storage feature.
     } catch (e) {
       if (!mounted) return;
 
@@ -269,6 +357,7 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   Future<void> _clearRecordedVideo() async {
     final previous = _videoController;
+
     _videoController = null;
     _recordedVideo = null;
 
@@ -296,7 +385,9 @@ class _CaptureScreenState extends State<CaptureScreen>
   Future<void> _togglePlayback() async {
     final player = _videoController;
 
-    if (player == null || !player.value.isInitialized) return;
+    if (player == null || !player.value.isInitialized) {
+      return;
+    }
 
     if (player.value.isPlaying) {
       await player.pause();
@@ -307,16 +398,21 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (mounted) setState(() {});
   }
 
+  // --------------------------------
+  // LIFECYCLE
+  // --------------------------------
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Android camera lifecycle handling will be
-    // implemented and tested on a real Android device.
+    // Android lifecycle handling will be implemented
+    // and tested on a real Android device.
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
 
+    _countdownToken++;
     _stopTimer();
     _stopwatch.stop();
 
@@ -325,6 +421,10 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     super.dispose();
   }
+
+  // --------------------------------
+  // VIDEO PREVIEW
+  // --------------------------------
 
   Widget _buildVideoPreview() {
     final player = _videoController;
@@ -358,11 +458,52 @@ class _CaptureScreenState extends State<CaptureScreen>
     );
   }
 
+  // --------------------------------
+  // CAMERA PREVIEW + FACE GUIDE
+  // --------------------------------
+
+  Widget _buildCameraPreview(CameraController controller) {
+    return Center(
+      child: AspectRatio(
+        aspectRatio: controller.value.aspectRatio,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            CameraPreview(controller),
+
+            if (_showFramingGuide) const Positioned.fill(child: FramingGuide()),
+
+            if (_isCountingDown)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black38,
+                  alignment: Alignment.center,
+                  child: Text(
+                    '$_countdownRemaining',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 90,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --------------------------------
+  // CAMERA CONTROLS
+  // --------------------------------
+
   Widget _buildCameraView(CameraController controller) {
     return Column(
       children: [
-        Expanded(child: Center(child: CameraPreview(controller))),
-        const SizedBox(height: 12),
+        Expanded(child: _buildCameraPreview(controller)),
+
+        const SizedBox(height: 8),
 
         if (_isRecording)
           Text(
@@ -374,13 +515,67 @@ class _CaptureScreenState extends State<CaptureScreen>
             ),
           ),
 
-        const SizedBox(height: 12),
+        if (_isCountingDown)
+          Text(
+            'Recording starts in $_countdownRemaining...',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+
+        const SizedBox(height: 8),
+
+        if (!_isRecording && !_isCountingDown)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Countdown: '),
+              DropdownButton<int>(
+                value: _selectedCountdown,
+                items: const [
+                  DropdownMenuItem(value: 0, child: Text('Off')),
+                  DropdownMenuItem(value: 3, child: Text('3s')),
+                  DropdownMenuItem(value: 5, child: Text('5s')),
+                  DropdownMenuItem(value: 10, child: Text('10s')),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (value) {
+                        if (value == null) return;
+
+                        setState(() {
+                          _selectedCountdown = value;
+                        });
+                      },
+              ),
+            ],
+          ),
+
+        if (!_isRecording && !_isCountingDown)
+          SwitchListTile(
+            dense: true,
+            title: const Text('Face Framing Guide'),
+            value: _showFramingGuide,
+            onChanged: _busy
+                ? null
+                : (value) {
+                    setState(() {
+                      _showFramingGuide = value;
+                    });
+                  },
+          ),
+
+        const SizedBox(height: 8),
 
         if (_busy)
           const CircularProgressIndicator()
+        else if (_isCountingDown)
+          ElevatedButton.icon(
+            onPressed: _cancelCountdown,
+            icon: const Icon(Icons.close),
+            label: const Text('Cancel Countdown'),
+          )
         else
           ElevatedButton.icon(
-            onPressed: _isRecording ? _stopRecording : _startRecording,
+            onPressed: _isRecording ? _stopRecording : _startCountdown,
             icon: Icon(_isRecording ? Icons.stop : Icons.fiber_manual_record),
             label: Text(_isRecording ? 'Stop Recording' : 'Start Recording'),
           ),
@@ -388,16 +583,25 @@ class _CaptureScreenState extends State<CaptureScreen>
         const SizedBox(height: 8),
 
         ElevatedButton.icon(
-          onPressed: (_cameras.length > 1 && !_isRecording && !_busy)
+          onPressed:
+              (_cameras.length > 1 &&
+                  !_isRecording &&
+                  !_isCountingDown &&
+                  !_busy)
               ? _switchCamera
               : null,
           icon: const Icon(Icons.cameraswitch),
           label: const Text('Switch Camera'),
         ),
-        const SizedBox(height: 16),
+
+        const SizedBox(height: 8),
       ],
     );
   }
+
+  // --------------------------------
+  // MAIN UI
+  // --------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -420,7 +624,10 @@ class _CaptureScreenState extends State<CaptureScreen>
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.red),
                     ),
-                    if (!_isRecording && !_busy && !hasVideo)
+                    if (!_isRecording &&
+                        !_isCountingDown &&
+                        !_busy &&
+                        !hasVideo)
                       TextButton(
                         onPressed: _initializeCamera,
                         child: const Text('Try Again'),
