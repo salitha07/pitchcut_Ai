@@ -43,6 +43,9 @@ dependencies:
   camera: ^0.12.1
   video_player: ^2.14.1
   image_picker: ^1.2.4
+  path_provider: ^2.1.6
+  path: ^1.9.1
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:
