@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:io' show File;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
+import 'services/capture_project_service.dart';
+import 'services/sensor_logging_service.dart';
 import 'widgets/framing_guide.dart';
 
 class CaptureScreen extends StatefulWidget {
@@ -19,6 +23,12 @@ class _CaptureScreenState extends State<CaptureScreen>
   CameraController? _controller;
   VideoPlayerController? _videoController;
 
+  final ImagePicker _picker = ImagePicker();
+
+  final CaptureProjectService _captureProjectService = CaptureProjectService();
+
+  final SensorLoggingService _sensorService = SensorLoggingService();
+
   List<CameraDescription> _cameras = [];
   int _cameraIndex = 0;
 
@@ -27,11 +37,13 @@ class _CaptureScreenState extends State<CaptureScreen>
   bool _isRecording = false;
   bool _isCountingDown = false;
   bool _showFramingGuide = true;
+  bool _savingProject = false;
+  bool _isImportedVideo = false;
 
   String? _error;
-  XFile? _recordedVideo;
+  XFile? _selectedVideo;
 
-  // Countdown settings
+  // Countdown
   int _selectedCountdown = 3;
   int _countdownRemaining = 0;
   int _countdownToken = 0;
@@ -48,8 +60,16 @@ class _CaptureScreenState extends State<CaptureScreen>
     _initializeCamera();
   }
 
+  // ==========================================
+  // CAMERA INITIALIZATION
+  // ==========================================
+
   Future<void> _initializeCamera() async {
-    if (!mounted || _isRecording || _isCountingDown || _busy) {
+    if (!mounted ||
+        _busy ||
+        _savingProject ||
+        _isRecording ||
+        _isCountingDown) {
       return;
     }
 
@@ -65,7 +85,8 @@ class _CaptureScreenState extends State<CaptureScreen>
         throw Exception('No camera found on this device.');
       }
 
-      await _openCamera(_cameraIndex % _cameras.length);
+      final index = _cameraIndex % _cameras.length;
+      await _openCamera(index);
     } catch (e) {
       if (!mounted) return;
 
@@ -84,7 +105,8 @@ class _CaptureScreenState extends State<CaptureScreen>
           code.contains('permission') ||
           code.contains('notallowed')) {
         return 'Camera or microphone permission denied. '
-            'Allow access in your browser settings and try again.';
+            'Allow access in device or browser settings '
+            'and try again.';
       }
 
       return 'Camera error: ${error.description ?? error.code}';
@@ -96,14 +118,12 @@ class _CaptureScreenState extends State<CaptureScreen>
   Future<void> _openCamera(int index) async {
     final previous = _controller;
     _controller = null;
+
     await previous?.dispose();
 
     final controller = CameraController(
       _cameras[index],
-
-      // Low resolution for Chrome performance testing.
       ResolutionPreset.low,
-
       enableAudio: true,
     );
 
@@ -131,9 +151,10 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (_cameras.length < 2 ||
         _loading ||
         _busy ||
+        _savingProject ||
         _isRecording ||
         _isCountingDown ||
-        _recordedVideo != null) {
+        _selectedVideo != null) {
       return;
     }
 
@@ -152,22 +173,23 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
   }
 
-  // --------------------------------
+  // ==========================================
   // COUNTDOWN
-  // --------------------------------
+  // ==========================================
 
   Future<void> _startCountdown() async {
     if (_busy ||
         _loading ||
+        _savingProject ||
         _isRecording ||
         _isCountingDown ||
-        _recordedVideo != null) {
+        _selectedVideo != null) {
       return;
     }
 
-    final controller = _controller;
+    final camera = _controller;
 
-    if (controller == null || !controller.value.isInitialized) {
+    if (camera == null || !camera.value.isInitialized) {
       return;
     }
 
@@ -196,7 +218,9 @@ class _CaptureScreenState extends State<CaptureScreen>
       });
     }
 
-    if (!mounted || token != _countdownToken) return;
+    if (!mounted || token != _countdownToken) {
+      return;
+    }
 
     setState(() {
       _isCountingDown = false;
@@ -216,9 +240,9 @@ class _CaptureScreenState extends State<CaptureScreen>
     });
   }
 
-  // --------------------------------
+  // ==========================================
   // RECORDING TIMER
-  // --------------------------------
+  // ==========================================
 
   void _startTimer() {
     _timer?.cancel();
@@ -229,7 +253,6 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     _recordingDuration = Duration.zero;
 
-    // Update UI only once per second.
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
 
@@ -248,25 +271,92 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   String _formatDuration(Duration duration) {
-    final minutes = duration.inMinutes.remainder(60);
+    final minutes = duration.inMinutes;
     final seconds = duration.inSeconds.remainder(60);
 
     return '${minutes.toString().padLeft(2, '0')}:'
         '${seconds.toString().padLeft(2, '0')}';
   }
 
-  // --------------------------------
-  // VIDEO RECORDING
-  // --------------------------------
+  // ==========================================
+  // VIDEO PREVIEW
+  // ==========================================
 
-  Future<void> _startRecording() async {
-    final controller = _controller;
+  Future<void> _prepareVideoPreview(XFile video) async {
+    final VideoPlayerController player;
 
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        controller.value.isRecordingVideo ||
-        _busy ||
+    if (kIsWeb) {
+      player = VideoPlayerController.networkUrl(Uri.parse(video.path));
+    } else {
+      player = VideoPlayerController.file(File(video.path));
+    }
+
+    try {
+      await player.initialize();
+      await player.setLooping(true);
+
+      if (!mounted) {
+        await player.dispose();
+        return;
+      }
+
+      final previous = _videoController;
+      _videoController = player;
+
+      await previous?.dispose();
+
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (_) {
+      await player.dispose();
+      rethrow;
+    }
+  }
+
+  Future<void> _clearSelectedVideo() async {
+    final previous = _videoController;
+
+    _videoController = null;
+    _selectedVideo = null;
+    _isImportedVideo = false;
+
+    await previous?.dispose();
+  }
+
+  Future<void> _togglePlayback() async {
+    final player = _videoController;
+
+    if (player == null || !player.value.isInitialized) {
+      return;
+    }
+
+    try {
+      if (player.value.isPlaying) {
+        await player.pause();
+      } else {
+        await player.play();
+      }
+
+      if (mounted) setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _error = 'Playback error: $e';
+      });
+    }
+  }
+
+  // ==========================================
+  // GALLERY IMPORT
+  // ==========================================
+
+  Future<void> _importVideo() async {
+    if (_busy ||
         _loading ||
+        _savingProject ||
+        _isRecording ||
         _isCountingDown) {
       return;
     }
@@ -277,7 +367,64 @@ class _CaptureScreenState extends State<CaptureScreen>
     });
 
     try {
-      await _clearRecordedVideo();
+      final video = await _picker.pickVideo(source: ImageSource.gallery);
+
+      if (video == null || !mounted) {
+        return;
+      }
+
+      await _clearSelectedVideo();
+      await _prepareVideoPreview(video);
+
+      if (!mounted) return;
+
+      setState(() {
+        _selectedVideo = video;
+        _isImportedVideo = true;
+        _recordingDuration = Duration.zero;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _error = 'Unable to import video: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  // ==========================================
+  // START RECORDING + SENSOR TRACKING
+  // ==========================================
+
+  Future<void> _startRecording() async {
+    final controller = _controller;
+
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        controller.value.isRecordingVideo ||
+        _busy ||
+        _loading ||
+        _savingProject ||
+        _isCountingDown ||
+        _selectedVideo != null) {
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+
+    try {
+      await _clearSelectedVideo();
+
+      // Start video capture first.
       await controller.startVideoRecording();
 
       if (!mounted) {
@@ -285,62 +432,90 @@ class _CaptureScreenState extends State<CaptureScreen>
         return;
       }
 
+      // Start the UI recording timer.
+      _startTimer();
+
+      // Start collecting accelerometer and gyroscope data.
+      // A sensor failure must not stop video recording.
+      try {
+        await _sensorService.startRecording();
+      } catch (e) {
+        debugPrint('Sensor tracking unavailable: $e');
+      }
+
+      if (!mounted) {
+        await _sensorService.stopRecording();
+        if (controller.value.isRecordingVideo) {
+          await controller.stopVideoRecording();
+        }
+        _stopTimer();
+        return;
+      }
+
       setState(() {
         _isRecording = true;
         _busy = false;
       });
-
-      _startTimer();
     } catch (e) {
+      _stopTimer();
+
+      try {
+        await _sensorService.stopRecording();
+      } catch (sensorError) {
+        debugPrint('Sensor cleanup error: $sensorError');
+      }
+
       if (!mounted) return;
 
       setState(() {
-        _error = 'Unable to start recording: $e';
+        _isRecording = false;
         _busy = false;
+        _error = 'Unable to start recording: $e';
       });
     }
   }
 
+  // ==========================================
+  // STOP RECORDING + STOP SENSOR TRACKING
+  // ==========================================
+
   Future<void> _stopRecording() async {
     final controller = _controller;
 
-    if (controller == null || !controller.value.isRecordingVideo || _busy) {
+    if (controller == null ||
+        !controller.value.isRecordingVideo ||
+        _busy ||
+        _savingProject) {
       return;
     }
 
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
 
     _stopTimer();
 
     try {
       final video = await controller.stopVideoRecording();
 
+      // Stop sensors after recording finishes.
+      await _sensorService.stopRecording();
+
       if (!mounted) return;
 
       setState(() {
         _isRecording = false;
-        _recordedVideo = video;
       });
 
-      if (kIsWeb) {
-        // Web recordings commonly have a browser blob URL.
-        final player = VideoPlayerController.networkUrl(Uri.parse(video.path));
+      await _prepareVideoPreview(video);
 
-        await player.initialize();
+      if (!mounted) return;
 
-        if (!mounted) {
-          await player.dispose();
-          return;
-        }
-
-        await player.setLooping(true);
-
-        _videoController = player;
-        setState(() {});
-      }
-
-      // Android file playback and permanent saving
-      // will be implemented in the storage feature.
+      setState(() {
+        _selectedVideo = video;
+        _isImportedVideo = false;
+      });
     } catch (e) {
       if (!mounted) return;
 
@@ -349,63 +524,222 @@ class _CaptureScreenState extends State<CaptureScreen>
         _error = 'Unable to stop or preview recording: $e';
       });
     } finally {
+      // Always release sensor subscriptions.
+      try {
+        await _sensorService.stopRecording();
+      } catch (e) {
+        debugPrint('Unable to stop sensors: $e');
+      }
+
       if (mounted) {
-        setState(() => _busy = false);
+        setState(() {
+          _busy = false;
+        });
       }
     }
   }
 
-  Future<void> _clearRecordedVideo() async {
-    final previous = _videoController;
+  // ==========================================
+  // SAVE PROJECT + SENSOR JSON
+  // ==========================================
 
-    _videoController = null;
-    _recordedVideo = null;
-
-    if (previous != null) {
-      await previous.dispose();
-    }
-  }
-
-  Future<void> _recordAgain() async {
-    if (_busy) return;
-
-    setState(() => _busy = true);
-
-    await _clearRecordedVideo();
-
-    if (!mounted) return;
-
-    setState(() {
-      _recordingDuration = Duration.zero;
-      _busy = false;
-      _error = null;
-    });
-  }
-
-  Future<void> _togglePlayback() async {
-    final player = _videoController;
-
-    if (player == null || !player.value.isInitialized) {
+  Future<void> _saveProject() async {
+    if (_savingProject ||
+        _busy ||
+        _isRecording ||
+        _isCountingDown ||
+        _selectedVideo == null) {
       return;
     }
 
-    if (player.value.isPlaying) {
-      await player.pause();
-    } else {
-      await player.play();
+    // Local absolute paths are supported on Android,
+    // not in this Chrome prototype.
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Project saving currently requires Android. '
+            'Chrome supports recording, import and preview.',
+          ),
+          duration: Duration(seconds: 5),
+        ),
+      );
+      return;
     }
 
-    if (mounted) setState(() {});
+    final video = _selectedVideo!;
+    final player = _videoController;
+
+    if (player == null || !player.value.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Video metadata is not ready.')),
+      );
+      return;
+    }
+
+    final titleController = TextEditingController(
+      text: 'PitchCut Video ${DateTime.now().millisecondsSinceEpoch}',
+    );
+
+    String? title;
+
+    try {
+      title = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Save New Project'),
+            content: TextField(
+              controller: titleController,
+              autofocus: true,
+              maxLength: 80,
+              decoration: const InputDecoration(
+                labelText: 'Project Title',
+                hintText: 'Enter project title',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final value = titleController.text.trim();
+
+                  if (value.isNotEmpty) {
+                    Navigator.of(dialogContext).pop(value);
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        titleController.dispose();
+      });
+    }
+
+    if (!mounted || title == null || title.trim().isEmpty) {
+      return;
+    }
+
+    final durationMs = player.value.duration.inMilliseconds;
+    final size = player.value.size;
+    final width = size.width.round();
+    final height = size.height.round();
+
+    if (durationMs <= 0 || width <= 0 || height <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid video duration or resolution.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _savingProject = true;
+      _error = null;
+    });
+
+    try {
+      final project = await _captureProjectService.saveAsNewProject(
+        video: video,
+        title: title,
+        durationMs: durationMs,
+        width: width,
+        height: height,
+
+        // Recorded video: include captured sensor data.
+        // Gallery import: sensor path remains null.
+        sensorService: _sensorService,
+        isImportedVideo: _isImportedVideo,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Project "${project.title}" saved successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to save project: $e'),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingProject = false;
+        });
+      }
+    }
   }
 
-  // --------------------------------
+  // ==========================================
+  // BACK TO CAMERA
+  // ==========================================
+
+  Future<void> _backToCamera() async {
+    if (_busy || _savingProject || _isRecording || _isCountingDown) {
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+      _loading = true;
+    });
+
+    try {
+      await _clearSelectedVideo();
+
+      if (!mounted) return;
+
+      _recordingDuration = Duration.zero;
+      _stopwatch.reset();
+
+      final oldCamera = _controller;
+      _controller = null;
+      await oldCamera?.dispose();
+
+      if (!mounted) return;
+
+      setState(() {
+        _busy = false;
+      });
+
+      await _initializeCamera();
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _busy = false;
+        _loading = false;
+        _error = 'Unable to reopen camera: $e';
+      });
+    }
+  }
+
+  // ==========================================
   // LIFECYCLE
-  // --------------------------------
+  // ==========================================
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Android lifecycle handling will be implemented
-    // and tested on a real Android device.
+    // Full Android interruption handling is pending.
+    // Verify camera recovery on a real Android device.
   }
 
   @override
@@ -416,26 +750,24 @@ class _CaptureScreenState extends State<CaptureScreen>
     _stopTimer();
     _stopwatch.stop();
 
+    // Stop active sensor subscriptions.
+    unawaited(_sensorService.dispose());
+
     _controller?.dispose();
     _videoController?.dispose();
 
     super.dispose();
   }
 
-  // --------------------------------
-  // VIDEO PREVIEW
-  // --------------------------------
+  // ==========================================
+  // VIDEO PREVIEW UI
+  // ==========================================
 
   Widget _buildVideoPreview() {
     final player = _videoController;
 
     if (player == null || !player.value.isInitialized) {
-      return const Center(
-        child: Text(
-          'Video recorded. Android preview will be added later.',
-          textAlign: TextAlign.center,
-        ),
-      );
+      return const Center(child: Text('Video preview unavailable'));
     }
 
     return Column(
@@ -450,7 +782,7 @@ class _CaptureScreenState extends State<CaptureScreen>
         ),
         const SizedBox(height: 12),
         ElevatedButton.icon(
-          onPressed: _togglePlayback,
+          onPressed: _savingProject ? null : _togglePlayback,
           icon: Icon(player.value.isPlaying ? Icons.pause : Icons.play_arrow),
           label: Text(player.value.isPlaying ? 'Pause Video' : 'Play Video'),
         ),
@@ -458,9 +790,9 @@ class _CaptureScreenState extends State<CaptureScreen>
     );
   }
 
-  // --------------------------------
-  // CAMERA PREVIEW + FACE GUIDE
-  // --------------------------------
+  // ==========================================
+  // CAMERA PREVIEW + FACE FRAMING
+  // ==========================================
 
   Widget _buildCameraPreview(CameraController controller) {
     return Center(
@@ -494,9 +826,9 @@ class _CaptureScreenState extends State<CaptureScreen>
     );
   }
 
-  // --------------------------------
+  // ==========================================
   // CAMERA CONTROLS
-  // --------------------------------
+  // ==========================================
 
   Widget _buildCameraView(CameraController controller) {
     return Column(
@@ -583,6 +915,16 @@ class _CaptureScreenState extends State<CaptureScreen>
         const SizedBox(height: 8),
 
         ElevatedButton.icon(
+          onPressed: (_busy || _loading || _isRecording || _isCountingDown)
+              ? null
+              : _importVideo,
+          icon: const Icon(Icons.video_library),
+          label: const Text('Import Video'),
+        ),
+
+        const SizedBox(height: 8),
+
+        ElevatedButton.icon(
           onPressed:
               (_cameras.length > 1 &&
                   !_isRecording &&
@@ -599,14 +941,14 @@ class _CaptureScreenState extends State<CaptureScreen>
     );
   }
 
-  // --------------------------------
+  // ==========================================
   // MAIN UI
-  // --------------------------------
+  // ==========================================
 
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    final hasVideo = _recordedVideo != null;
+    final hasVideo = _selectedVideo != null;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Record Video')),
@@ -649,10 +991,52 @@ class _CaptureScreenState extends State<CaptureScreen>
             if (hasVideo)
               Padding(
                 padding: const EdgeInsets.all(12),
-                child: ElevatedButton.icon(
-                  onPressed: _busy ? null : _recordAgain,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Record Again'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_isImportedVideo)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'Imported video',
+                          style: TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                      ),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: (_savingProject || _busy)
+                            ? null
+                            : _saveProject,
+                        icon: _savingProject
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.save),
+                        label: Text(
+                          _savingProject ? 'Saving Project...' : 'Save Project',
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: (_busy || _savingProject)
+                            ? null
+                            : _backToCamera,
+                        icon: const Icon(Icons.arrow_back),
+                        label: const Text('Back to Camera'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
           ],
