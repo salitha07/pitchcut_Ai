@@ -43,12 +43,10 @@ class _CaptureScreenState extends State<CaptureScreen>
   String? _error;
   XFile? _selectedVideo;
 
-  // Countdown
   int _selectedCountdown = 3;
   int _countdownRemaining = 0;
   int _countdownToken = 0;
 
-  // Recording timer
   Timer? _timer;
   final Stopwatch _stopwatch = Stopwatch();
   Duration _recordingDuration = Duration.zero;
@@ -97,23 +95,85 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
   }
 
+  // ==========================================
+  // CAMERA PERMISSION ERROR HANDLING
+  // ==========================================
+
   String _cameraErrorMessage(Object error) {
     if (error is CameraException) {
-      final code = error.code.toLowerCase();
+      switch (error.code) {
+        case 'CameraAccessDenied':
+          return 'Camera permission denied. '
+              'Please allow camera access and try again.';
 
-      if (code.contains('denied') ||
-          code.contains('permission') ||
-          code.contains('notallowed')) {
-        return 'Camera or microphone permission denied. '
-            'Allow access in device or browser settings '
-            'and try again.';
+        case 'CameraAccessDeniedWithoutPrompt':
+          return 'Camera permission was previously denied. '
+              'Enable camera access in device settings.';
+
+        case 'CameraAccessRestricted':
+          return 'Camera access is restricted on this device.';
+
+        case 'AudioAccessDenied':
+          return 'Microphone permission denied. '
+              'Please allow microphone access to record videos.';
+
+        case 'AudioAccessDeniedWithoutPrompt':
+          return 'Microphone permission was previously denied. '
+              'Enable microphone access in device settings.';
+
+        case 'AudioAccessRestricted':
+          return 'Microphone access is restricted on this device.';
+
+        default:
+          return 'Camera error: '
+              '${error.description ?? error.code}';
       }
-
-      return 'Camera error: ${error.description ?? error.code}';
     }
 
-    return 'Camera error: $error';
+    return 'Unable to access camera: $error';
   }
+
+  // ==========================================
+  // RECORDING PERMISSION ERROR HANDLING
+  // ==========================================
+
+  String _recordingErrorMessage(Object error) {
+    if (error is CameraException) {
+      switch (error.code) {
+        case 'AudioAccessDenied':
+          return 'Microphone permission denied. '
+              'Please allow microphone access and try again.';
+
+        case 'AudioAccessDeniedWithoutPrompt':
+          return 'Microphone permission is blocked. '
+              'Enable microphone access in device settings.';
+
+        case 'AudioAccessRestricted':
+          return 'Microphone access is restricted on this device.';
+
+        case 'CameraAccessDenied':
+          return 'Camera permission denied. '
+              'Please enable camera access.';
+
+        case 'CameraAccessDeniedWithoutPrompt':
+          return 'Camera permission is blocked. '
+              'Enable camera access in device settings.';
+
+        case 'CameraAccessRestricted':
+          return 'Camera access is restricted on this device.';
+
+        default:
+          return 'Video recording failed: '
+              '${error.description ?? error.code}';
+      }
+    }
+
+    return 'Unable to record video: $error';
+  }
+
+  // ==========================================
+  // OPEN CAMERA
+  // ==========================================
 
   Future<void> _openCamera(int index) async {
     final previous = _controller;
@@ -147,6 +207,10 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
   }
 
+  // ==========================================
+  // SWITCH CAMERA
+  // ==========================================
+
   Future<void> _switchCamera() async {
     if (_cameras.length < 2 ||
         _loading ||
@@ -158,7 +222,9 @@ class _CaptureScreenState extends State<CaptureScreen>
       return;
     }
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+    });
 
     try {
       final next = (_cameraIndex + 1) % _cameras.length;
@@ -174,7 +240,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   // ==========================================
-  // COUNTDOWN
+  // COUNTDOWN TIMER
   // ==========================================
 
   Future<void> _startCountdown() async {
@@ -324,6 +390,10 @@ class _CaptureScreenState extends State<CaptureScreen>
     await previous?.dispose();
   }
 
+  // ==========================================
+  // PLAY / PAUSE VIDEO
+  // ==========================================
+
   Future<void> _togglePlayback() async {
     final player = _videoController;
 
@@ -338,7 +408,9 @@ class _CaptureScreenState extends State<CaptureScreen>
         await player.play();
       }
 
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     } catch (e) {
       if (!mounted) return;
 
@@ -349,7 +421,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   // ==========================================
-  // GALLERY IMPORT
+  // GALLERY VIDEO IMPORT
   // ==========================================
 
   Future<void> _importVideo() async {
@@ -424,7 +496,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     try {
       await _clearSelectedVideo();
 
-      // Start video capture first.
+      // Start camera video recording.
       await controller.startVideoRecording();
 
       if (!mounted) {
@@ -432,11 +504,11 @@ class _CaptureScreenState extends State<CaptureScreen>
         return;
       }
 
-      // Start the UI recording timer.
+      // Start recording duration timer.
       _startTimer();
 
-      // Start collecting accelerometer and gyroscope data.
-      // A sensor failure must not stop video recording.
+      // Start sensor tracking.
+      // Sensor failure should not stop the recording.
       try {
         await _sensorService.startRecording();
       } catch (e) {
@@ -445,9 +517,11 @@ class _CaptureScreenState extends State<CaptureScreen>
 
       if (!mounted) {
         await _sensorService.stopRecording();
+
         if (controller.value.isRecordingVideo) {
           await controller.stopVideoRecording();
         }
+
         _stopTimer();
         return;
       }
@@ -470,13 +544,15 @@ class _CaptureScreenState extends State<CaptureScreen>
       setState(() {
         _isRecording = false;
         _busy = false;
-        _error = 'Unable to start recording: $e';
+
+        // Improved permission-aware error handling.
+        _error = _recordingErrorMessage(e);
       });
     }
   }
 
   // ==========================================
-  // STOP RECORDING + STOP SENSOR TRACKING
+  // STOP RECORDING + SENSOR CLEANUP
   // ==========================================
 
   Future<void> _stopRecording() async {
@@ -499,7 +575,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     try {
       final video = await controller.stopVideoRecording();
 
-      // Stop sensors after recording finishes.
+      // Stop accelerometer and gyroscope logging.
       await _sensorService.stopRecording();
 
       if (!mounted) return;
@@ -521,10 +597,11 @@ class _CaptureScreenState extends State<CaptureScreen>
 
       setState(() {
         _isRecording = false;
-        _error = 'Unable to stop or preview recording: $e';
+
+        // Improved recording error handling.
+        _error = _recordingErrorMessage(e);
       });
     } finally {
-      // Always release sensor subscriptions.
       try {
         await _sensorService.stopRecording();
       } catch (e) {
@@ -540,7 +617,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   // ==========================================
-  // SAVE PROJECT + SENSOR JSON
+  // SAVE PROJECT
   // ==========================================
 
   Future<void> _saveProject() async {
@@ -552,8 +629,6 @@ class _CaptureScreenState extends State<CaptureScreen>
       return;
     }
 
-    // Local absolute paths are supported on Android,
-    // not in this Chrome prototype.
     if (kIsWeb) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -578,7 +653,9 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
 
     final titleController = TextEditingController(
-      text: 'PitchCut Video ${DateTime.now().millisecondsSinceEpoch}',
+      text:
+          'PitchCut Video '
+          '${DateTime.now().millisecondsSinceEpoch}',
     );
 
     String? title;
@@ -631,6 +708,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
 
     final durationMs = player.value.duration.inMilliseconds;
+
     final size = player.value.size;
     final width = size.width.round();
     final height = size.height.round();
@@ -655,8 +733,8 @@ class _CaptureScreenState extends State<CaptureScreen>
         width: width,
         height: height,
 
-        // Recorded video: include captured sensor data.
-        // Gallery import: sensor path remains null.
+        // Sensor data is attached to recorded videos.
+        // Imported videos have no original sensor data.
         sensorService: _sensorService,
         isImportedVideo: _isImportedVideo,
       );
@@ -665,7 +743,10 @@ class _CaptureScreenState extends State<CaptureScreen>
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Project "${project.title}" saved successfully!'),
+          content: Text(
+            'Project "${project.title}" '
+            'saved successfully!',
+          ),
           backgroundColor: Colors.green,
         ),
       );
@@ -712,6 +793,7 @@ class _CaptureScreenState extends State<CaptureScreen>
 
       final oldCamera = _controller;
       _controller = null;
+
       await oldCamera?.dispose();
 
       if (!mounted) return;
@@ -733,14 +815,18 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   // ==========================================
-  // LIFECYCLE
+  // APP LIFECYCLE
   // ==========================================
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Full Android interruption handling is pending.
-    // Verify camera recovery on a real Android device.
+    // Android lifecycle recovery is a separate task.
+    // It needs testing on a real Android device.
   }
+
+  // ==========================================
+  // DISPOSE
+  // ==========================================
 
   @override
   void dispose() {
@@ -750,7 +836,6 @@ class _CaptureScreenState extends State<CaptureScreen>
     _stopTimer();
     _stopwatch.stop();
 
-    // Stop active sensor subscriptions.
     unawaited(_sensorService.dispose());
 
     _controller?.dispose();
@@ -781,6 +866,7 @@ class _CaptureScreenState extends State<CaptureScreen>
           ),
         ),
         const SizedBox(height: 12),
+
         ElevatedButton.icon(
           onPressed: _savingProject ? null : _togglePlayback,
           icon: Icon(player.value.isPlaying ? Icons.pause : Icons.play_arrow),
@@ -849,7 +935,8 @@ class _CaptureScreenState extends State<CaptureScreen>
 
         if (_isCountingDown)
           Text(
-            'Recording starts in $_countdownRemaining...',
+            'Recording starts in '
+            '$_countdownRemaining...',
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
 
@@ -860,6 +947,7 @@ class _CaptureScreenState extends State<CaptureScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text('Countdown: '),
+
               DropdownButton<int>(
                 value: _selectedCountdown,
                 items: const [
@@ -966,6 +1054,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.red),
                     ),
+
                     if (!_isRecording &&
                         !_isCountingDown &&
                         !_busy &&
