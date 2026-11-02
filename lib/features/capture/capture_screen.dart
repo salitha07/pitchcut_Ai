@@ -21,9 +21,7 @@ class CaptureScreen extends StatefulWidget {
 class _CaptureScreenState extends State<CaptureScreen>
     with WidgetsBindingObserver {
   final ImagePicker _picker = ImagePicker();
-
   final CaptureProjectService _captureProjectService = CaptureProjectService();
-
   final SensorLoggingService _sensorService = SensorLoggingService();
 
   CameraController? _controller;
@@ -522,7 +520,6 @@ class _CaptureScreenState extends State<CaptureScreen>
 
       _startTimer();
 
-      // Sensor failure must not stop video recording.
       try {
         await _sensorService.startRecording();
       } catch (e) {
@@ -565,8 +562,6 @@ class _CaptureScreenState extends State<CaptureScreen>
         });
       }
 
-      // If the app moved to the background while
-      // starting a recording, handle it now.
       if (_isAndroid && _appInBackground) {
         unawaited(_handleBackground());
       }
@@ -598,7 +593,6 @@ class _CaptureScreenState extends State<CaptureScreen>
         throw StateError('The camera stopped recording unexpectedly.');
       }
 
-      // Attempt to finalize the recording.
       video = await camera.stopVideoRecording();
 
       if (!mounted) return;
@@ -619,7 +613,6 @@ class _CaptureScreenState extends State<CaptureScreen>
         });
       }
     } finally {
-      // Always stop motion sensor tracking.
       try {
         await _sensorService.stopRecording();
       } catch (e) {
@@ -636,8 +629,6 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (video == null || !mounted) return;
 
     if (_appInBackground) {
-      // Defer video-player initialization until
-      // the Android app returns to the foreground.
       _pendingInterruptedVideo = video;
     } else {
       try {
@@ -918,12 +909,10 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   Future<void> _handleBackgroundInternal() async {
-    // Wait for camera initialization before disposing.
     await _cameraInitialization;
 
     if (!mounted) return;
 
-    // An operation may still be starting or stopping.
     if (_busy || _savingProject) return;
 
     if (_isRecording) {
@@ -974,7 +963,6 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   Future<void> _handleResumeInternal() async {
-    // Wait for any active background operation.
     await _backgroundTask;
 
     if (!mounted ||
@@ -1076,9 +1064,7 @@ class _CaptureScreenState extends State<CaptureScreen>
             ),
           ),
         ),
-
         const SizedBox(height: 12),
-
         ElevatedButton.icon(
           onPressed: _savingProject ? null : _togglePlayback,
           icon: Icon(player.value.isPlaying ? Icons.pause : Icons.play_arrow),
@@ -1089,39 +1075,77 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   // ==========================================
-  // CAMERA PREVIEW + FACE FRAMING
+  // CAMERA PREVIEW - BOXFIT.COVER FIX
   // ==========================================
 
   Widget _buildCameraPreview(CameraController camera) {
-    return Center(
-      child: AspectRatio(
-        aspectRatio: camera.value.aspectRatio,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            CameraPreview(camera),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final previewSize = camera.value.previewSize;
 
-            if (_showFramingGuide) const Positioned.fill(child: FramingGuide()),
+        if (previewSize == null ||
+            constraints.maxWidth <= 0 ||
+            constraints.maxHeight <= 0) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-            if (_isCountingDown)
+        // Camera preview sizes are commonly reported
+        // in the camera sensor's landscape orientation.
+        // Swap the dimensions for the portrait UI.
+        final isPortrait =
+            MediaQuery.orientationOf(context) == Orientation.portrait;
+
+        final previewWidth = isPortrait
+            ? previewSize.height
+            : previewSize.width;
+
+        final previewHeight = isPortrait
+            ? previewSize.width
+            : previewSize.height;
+
+        return ClipRect(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
               Positioned.fill(
-                child: ColoredBox(
-                  color: Colors.black38,
-                  child: Center(
-                    child: Text(
-                      '$_countdownRemaining',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 90,
-                        fontWeight: FontWeight.bold,
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  alignment: Alignment.center,
+                  child: SizedBox(
+                    width: previewWidth,
+                    height: previewHeight,
+                    child: CameraPreview(camera),
+                  ),
+                ),
+              ),
+
+              if (_showFramingGuide)
+                const Positioned.fill(
+                  child: IgnorePointer(child: FramingGuide()),
+                ),
+
+              if (_isCountingDown)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ColoredBox(
+                      color: Colors.black38,
+                      child: Center(
+                        child: Text(
+                          '$_countdownRemaining',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 90,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1159,7 +1183,6 @@ class _CaptureScreenState extends State<CaptureScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text('Countdown: '),
-
               DropdownButton<int>(
                 value: _selectedCountdown,
                 items: const [
@@ -1266,7 +1289,6 @@ class _CaptureScreenState extends State<CaptureScreen>
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.red),
                     ),
-
                     if (!_isRecording &&
                         !_isCountingDown &&
                         !_busy &&
