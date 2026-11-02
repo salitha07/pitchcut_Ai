@@ -20,31 +20,34 @@ class CaptureScreen extends StatefulWidget {
 
 class _CaptureScreenState extends State<CaptureScreen>
     with WidgetsBindingObserver {
+  final ImagePicker _picker = ImagePicker();
+
+  final CaptureProjectService _captureProjectService = CaptureProjectService();
+
+  final SensorLoggingService _sensorService = SensorLoggingService();
+
   CameraController? _controller;
   VideoPlayerController? _videoController;
-
-  final ImagePicker _picker = ImagePicker();
-  final CaptureProjectService _captureProjectService = CaptureProjectService();
-  final SensorLoggingService _sensorService = SensorLoggingService();
 
   List<CameraDescription> _cameras = [];
   int _cameraIndex = 0;
 
   bool _loading = true;
   bool _busy = false;
+  bool _savingProject = false;
   bool _isRecording = false;
   bool _isCountingDown = false;
   bool _showFramingGuide = true;
-  bool _savingProject = false;
   bool _isImportedVideo = false;
-
-  // Android lifecycle state
   bool _appInBackground = false;
-  Future<void>? _cameraRelease;
-  Future<void>? _cameraInitialization;
 
-  String? _error;
+  Future<void>? _cameraInitialization;
+  Future<void>? _backgroundTask;
+  Future<void>? _resumeTask;
+
+  XFile? _pendingInterruptedVideo;
   XFile? _selectedVideo;
+  String? _error;
 
   int _selectedCountdown = 3;
   int _countdownRemaining = 0;
@@ -65,7 +68,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   // ==========================================
-  // CAMERA PERMISSION ERRORS
+  // CAMERA PERMISSION ERROR HANDLING
   // ==========================================
 
   String _cameraErrorMessage(Object error) {
@@ -73,25 +76,27 @@ class _CaptureScreenState extends State<CaptureScreen>
       switch (error.code) {
         case 'CameraAccessDenied':
           return 'Camera permission denied. '
-              'Please allow camera access and try again.';
+              'Allow camera access and retry.';
 
         case 'CameraAccessDeniedWithoutPrompt':
-          return 'Camera permission is blocked. '
-              'Enable camera access in device settings.';
+          return 'Camera permission blocked. '
+              'Enable it in device settings.';
 
         case 'CameraAccessRestricted':
-          return 'Camera access is restricted on this device.';
+          return 'Camera access is restricted '
+              'on this device.';
 
         case 'AudioAccessDenied':
           return 'Microphone permission denied. '
-              'Please allow microphone access.';
+              'Allow microphone access.';
 
         case 'AudioAccessDeniedWithoutPrompt':
-          return 'Microphone permission is blocked. '
-              'Enable microphone access in device settings.';
+          return 'Microphone permission blocked. '
+              'Enable it in device settings.';
 
         case 'AudioAccessRestricted':
-          return 'Microphone access is restricted on this device.';
+          return 'Microphone access is restricted '
+              'on this device.';
 
         default:
           return 'Camera error: '
@@ -103,41 +108,15 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   // ==========================================
-  // RECORDING ERRORS
+  // VIDEO RECORDING ERROR HANDLING
   // ==========================================
 
   String _recordingErrorMessage(Object error) {
     if (error is CameraException) {
-      switch (error.code) {
-        case 'AudioAccessDenied':
-          return 'Microphone permission denied. '
-              'Allow microphone access and try again.';
-
-        case 'AudioAccessDeniedWithoutPrompt':
-          return 'Microphone permission is blocked. '
-              'Enable microphone access in device settings.';
-
-        case 'AudioAccessRestricted':
-          return 'Microphone access is restricted.';
-
-        case 'CameraAccessDenied':
-          return 'Camera permission denied. '
-              'Please enable camera access.';
-
-        case 'CameraAccessDeniedWithoutPrompt':
-          return 'Camera permission is blocked. '
-              'Enable camera access in device settings.';
-
-        case 'CameraAccessRestricted':
-          return 'Camera access is restricted.';
-
-        default:
-          return 'Video recording failed: '
-              '${error.description ?? error.code}';
-      }
+      return _cameraErrorMessage(error);
     }
 
-    return 'Unable to record video: $error';
+    return 'Video recording failed: $error';
   }
 
   // ==========================================
@@ -155,19 +134,22 @@ class _CaptureScreenState extends State<CaptureScreen>
       return;
     }
 
-    final existingInitialization = _cameraInitialization;
-    if (existingInitialization != null) {
-      await existingInitialization;
+    final existing = _cameraInitialization;
+
+    if (existing != null) {
+      await existing;
       return;
     }
 
-    final future = _initializeCameraInternal();
-    _cameraInitialization = future;
+    final task = _initializeCameraInternal();
+    _cameraInitialization = task;
 
     try {
-      await future;
+      await task;
     } finally {
-      _cameraInitialization = null;
+      if (identical(_cameraInitialization, task)) {
+        _cameraInitialization = null;
+      }
     }
   }
 
@@ -183,55 +165,54 @@ class _CaptureScreenState extends State<CaptureScreen>
       final cameras = await availableCameras();
 
       if (cameras.isEmpty) {
-        throw StateError('No camera found on this device.');
+        throw StateError('No cameras were found.');
       }
 
       if (!mounted || _appInBackground) return;
 
       _cameras = cameras;
 
-      final index = _cameraIndex % _cameras.length;
-      await _openCamera(index);
+      await _openCamera(_cameraIndex % cameras.length);
     } catch (e) {
       if (!mounted || _appInBackground) return;
 
       setState(() {
-        _error = _cameraErrorMessage(e);
         _loading = false;
+        _error = _cameraErrorMessage(e);
       });
     }
   }
 
   Future<void> _openCamera(int index) async {
-    final previous = _controller;
+    final oldCamera = _controller;
     _controller = null;
 
-    await previous?.dispose();
+    await oldCamera?.dispose();
 
     if (!mounted || _appInBackground) return;
 
-    final controller = CameraController(
+    final camera = CameraController(
       _cameras[index],
       ResolutionPreset.low,
       enableAudio: true,
     );
 
     try {
-      await controller.initialize();
+      await camera.initialize();
 
       if (!mounted || _appInBackground) {
-        await controller.dispose();
+        await camera.dispose();
         return;
       }
 
       setState(() {
-        _controller = controller;
+        _controller = camera;
         _cameraIndex = index;
         _loading = false;
         _error = null;
       });
     } catch (_) {
-      await controller.dispose();
+      await camera.dispose();
       rethrow;
     }
   }
@@ -258,19 +239,20 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     try {
       final next = (_cameraIndex + 1) % _cameras.length;
+
       await _openCamera(next);
     } catch (e) {
       if (!mounted) return;
 
       setState(() {
-        _error = _cameraErrorMessage(e);
         _loading = false;
+        _error = _cameraErrorMessage(e);
       });
     }
   }
 
   // ==========================================
-  // COUNTDOWN
+  // COUNTDOWN TIMER
   // ==========================================
 
   Future<void> _startCountdown() async {
@@ -280,13 +262,8 @@ class _CaptureScreenState extends State<CaptureScreen>
         _isRecording ||
         _isCountingDown ||
         _appInBackground ||
-        _selectedVideo != null) {
-      return;
-    }
-
-    final camera = _controller;
-
-    if (camera == null || !camera.value.isInitialized) {
+        _selectedVideo != null ||
+        _controller?.value.isInitialized != true) {
       return;
     }
 
@@ -332,16 +309,16 @@ class _CaptureScreenState extends State<CaptureScreen>
   void _cancelCountdown() {
     _countdownToken++;
 
-    if (!mounted) return;
-
-    setState(() {
-      _isCountingDown = false;
-      _countdownRemaining = 0;
-    });
+    if (mounted) {
+      setState(() {
+        _isCountingDown = false;
+        _countdownRemaining = 0;
+      });
+    }
   }
 
   // ==========================================
-  // RECORDING TIMER
+  // RECORDING DURATION TIMER
   // ==========================================
 
   void _startTimer() {
@@ -354,11 +331,11 @@ class _CaptureScreenState extends State<CaptureScreen>
     _recordingDuration = Duration.zero;
 
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-
-      setState(() {
-        _recordingDuration = _stopwatch.elapsed;
-      });
+      if (mounted) {
+        setState(() {
+          _recordingDuration = _stopwatch.elapsed;
+        });
+      }
     });
   }
 
@@ -370,12 +347,12 @@ class _CaptureScreenState extends State<CaptureScreen>
     _recordingDuration = _stopwatch.elapsed;
   }
 
-  String _formatDuration(Duration duration) {
-    final minutes = duration.inMinutes;
-    final seconds = duration.inSeconds.remainder(60);
+  String _formatDuration(Duration value) {
+    final minutes = value.inMinutes.toString().padLeft(2, '0');
 
-    return '${minutes.toString().padLeft(2, '0')}:'
-        '${seconds.toString().padLeft(2, '0')}';
+    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+
+    return '$minutes:$seconds';
   }
 
   // ==========================================
@@ -419,10 +396,15 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     _videoController = null;
     _selectedVideo = null;
+    _pendingInterruptedVideo = null;
     _isImportedVideo = false;
 
     await previous?.dispose();
   }
+
+  // ==========================================
+  // PLAY / PAUSE VIDEO
+  // ==========================================
 
   Future<void> _togglePlayback() async {
     final player = _videoController;
@@ -438,18 +420,20 @@ class _CaptureScreenState extends State<CaptureScreen>
         await player.play();
       }
 
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _error = 'Playback error: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _error = 'Playback error: $e';
+        });
+      }
     }
   }
 
   // ==========================================
-  // GALLERY IMPORT
+  // GALLERY VIDEO IMPORT
   // ==========================================
 
   Future<void> _importVideo() async {
@@ -457,8 +441,7 @@ class _CaptureScreenState extends State<CaptureScreen>
         _loading ||
         _savingProject ||
         _isRecording ||
-        _isCountingDown ||
-        _appInBackground) {
+        _isCountingDown) {
       return;
     }
 
@@ -470,7 +453,9 @@ class _CaptureScreenState extends State<CaptureScreen>
     try {
       final video = await _picker.pickVideo(source: ImageSource.gallery);
 
-      if (video == null || !mounted) return;
+      if (video == null || !mounted) {
+        return;
+      }
 
       await _clearSelectedVideo();
       await _prepareVideoPreview(video);
@@ -483,30 +468,34 @@ class _CaptureScreenState extends State<CaptureScreen>
         _recordingDuration = Duration.zero;
       });
     } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _error = 'Unable to import video: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _error = 'Unable to import video: $e';
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
           _busy = false;
         });
       }
+
+      if (_isAndroid && _appInBackground) {
+        unawaited(_handleBackground());
+      }
     }
   }
 
   // ==========================================
-  // START RECORDING + SENSORS
+  // START VIDEO RECORDING + SENSORS
   // ==========================================
 
   Future<void> _startRecording() async {
-    final controller = _controller;
+    final camera = _controller;
 
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        controller.value.isRecordingVideo ||
+    if (camera == null ||
+        !camera.value.isInitialized ||
+        camera.value.isRecordingVideo ||
         _busy ||
         _loading ||
         _savingProject ||
@@ -523,35 +512,36 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     try {
       await _clearSelectedVideo();
-      await controller.startVideoRecording();
+
+      await camera.startVideoRecording();
 
       if (!mounted) {
-        await controller.stopVideoRecording();
+        await camera.stopVideoRecording();
         return;
       }
 
       _startTimer();
 
+      // Sensor failure must not stop video recording.
       try {
         await _sensorService.startRecording();
       } catch (e) {
-        debugPrint('Sensor tracking unavailable: $e');
+        debugPrint('Motion sensors unavailable: $e');
       }
 
       if (!mounted) {
+        _stopTimer();
+
         await _sensorService.stopRecording();
 
-        if (controller.value.isRecordingVideo) {
-          await controller.stopVideoRecording();
+        if (camera.value.isRecordingVideo) {
+          await camera.stopVideoRecording();
         }
-
-        _stopTimer();
         return;
       }
 
       setState(() {
         _isRecording = true;
-        _busy = false;
       });
     } catch (e) {
       _stopTimer();
@@ -562,27 +552,35 @@ class _CaptureScreenState extends State<CaptureScreen>
         debugPrint('Sensor cleanup error: $sensorError');
       }
 
-      if (!mounted) return;
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+          _error = _recordingErrorMessage(e);
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
 
-      setState(() {
-        _isRecording = false;
-        _busy = false;
-        _error = _recordingErrorMessage(e);
-      });
+      // If the app moved to the background while
+      // starting a recording, handle it now.
+      if (_isAndroid && _appInBackground) {
+        unawaited(_handleBackground());
+      }
     }
   }
 
   // ==========================================
-  // STOP RECORDING + SENSORS
+  // FINISH RECORDING / INTERRUPTION RECOVERY
   // ==========================================
 
-  Future<void> _stopRecording() async {
-    final controller = _controller;
+  Future<void> _finishRecording({required bool interrupted}) async {
+    final camera = _controller;
 
-    if (controller == null ||
-        !controller.value.isRecordingVideo ||
-        _busy ||
-        _savingProject) {
+    if (camera == null || _busy || !_isRecording) {
       return;
     }
 
@@ -593,36 +591,39 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     _stopTimer();
 
+    XFile? video;
+
     try {
-      final video = await controller.stopVideoRecording();
-      await _sensorService.stopRecording();
+      if (!camera.value.isRecordingVideo) {
+        throw StateError('The camera stopped recording unexpectedly.');
+      }
+
+      // Attempt to finalize the recording.
+      video = await camera.stopVideoRecording();
 
       if (!mounted) return;
 
       setState(() {
         _isRecording = false;
-      });
-
-      await _prepareVideoPreview(video);
-
-      if (!mounted) return;
-
-      setState(() {
         _selectedVideo = video;
         _isImportedVideo = false;
       });
     } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _isRecording = false;
-        _error = _recordingErrorMessage(e);
-      });
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+          _error = interrupted
+              ? 'Recording was interrupted. '
+                    'The video could not be recovered: $e'
+              : _recordingErrorMessage(e);
+        });
+      }
     } finally {
+      // Always stop motion sensor tracking.
       try {
         await _sensorService.stopRecording();
       } catch (e) {
-        debugPrint('Unable to stop sensors: $e');
+        debugPrint('Unable to stop motion sensors: $e');
       }
 
       if (mounted) {
@@ -631,10 +632,43 @@ class _CaptureScreenState extends State<CaptureScreen>
         });
       }
     }
+
+    if (video == null || !mounted) return;
+
+    if (_appInBackground) {
+      // Defer video-player initialization until
+      // the Android app returns to the foreground.
+      _pendingInterruptedVideo = video;
+    } else {
+      try {
+        await _prepareVideoPreview(video);
+
+        if (mounted && interrupted) {
+          setState(() {
+            _error =
+                'Recording stopped when the app went '
+                'into the background. Review and save '
+                'the video.';
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _error =
+                'Video captured, but preview '
+                'could not open: $e';
+          });
+        }
+      }
+    }
+  }
+
+  Future<void> _stopRecording() {
+    return _finishRecording(interrupted: false);
   }
 
   // ==========================================
-  // SAVE PROJECT
+  // SAVE PROJECT + SENSOR DATA
   // ==========================================
 
   Future<void> _saveProject() async {
@@ -651,8 +685,8 @@ class _CaptureScreenState extends State<CaptureScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Project saving currently requires Android. '
-            'Chrome supports recording, import and preview.',
+            'Permanent project saving '
+            'currently requires Android.',
           ),
         ),
       );
@@ -664,7 +698,12 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     if (player == null || !player.value.isInitialized) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Video metadata is not ready.')),
+        const SnackBar(
+          content: Text(
+            'Video preview or metadata '
+            'is not ready.',
+          ),
+        ),
       );
       return;
     }
@@ -694,14 +733,17 @@ class _CaptureScreenState extends State<CaptureScreen>
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                },
                 child: const Text('Cancel'),
               ),
               ElevatedButton(
                 onPressed: () {
-                  final value = titleController.text.trim();
-                  if (value.isNotEmpty) {
-                    Navigator.of(dialogContext).pop(value);
+                  final name = titleController.text.trim();
+
+                  if (name.isNotEmpty) {
+                    Navigator.of(dialogContext).pop(name);
                   }
                 },
                 child: const Text('Save'),
@@ -711,17 +753,19 @@ class _CaptureScreenState extends State<CaptureScreen>
         },
       );
     } finally {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        titleController.dispose();
-      });
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => titleController.dispose(),
+      );
     }
 
     if (!mounted || title == null || title.trim().isEmpty) {
       return;
     }
 
-    final durationMs = player.value.duration.inMilliseconds;
     final size = player.value.size;
+
+    final durationMs = player.value.duration.inMilliseconds;
+
     final width = size.width.round();
     final height = size.height.round();
 
@@ -734,7 +778,6 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     setState(() {
       _savingProject = true;
-      _error = null;
     });
 
     try {
@@ -748,18 +791,22 @@ class _CaptureScreenState extends State<CaptureScreen>
         isImportedVideo: _isImportedVideo,
       );
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Project "${project.title}" saved successfully!'),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Project "${project.title}" '
+              'saved successfully!',
+            ),
+          ),
+        );
+      }
     } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Unable to save project: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Unable to save project: $e')));
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -798,6 +845,7 @@ class _CaptureScreenState extends State<CaptureScreen>
 
       final oldCamera = _controller;
       _controller = null;
+
       await oldCamera?.dispose();
 
       if (!mounted) return;
@@ -808,13 +856,13 @@ class _CaptureScreenState extends State<CaptureScreen>
 
       await _initializeCamera();
     } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _busy = false;
-        _loading = false;
-        _error = 'Unable to reopen camera: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _loading = false;
+          _error = 'Unable to reopen camera: $e';
+        });
+      }
     }
   }
 
@@ -836,23 +884,13 @@ class _CaptureScreenState extends State<CaptureScreen>
           _cancelCountdown();
         }
 
-        if (_isRecording || _busy || _savingProject) {
-          return;
-        }
-
-        _cameraRelease ??= _releaseCameraForBackground().whenComplete(() {
-          _cameraRelease = null;
-        });
+        unawaited(_handleBackground());
         break;
 
       case AppLifecycleState.resumed:
         _appInBackground = false;
 
-        if (_isRecording || _busy || _savingProject) {
-          return;
-        }
-
-        unawaited(_restoreCameraAfterBackground());
+        unawaited(_handleResume());
         break;
 
       case AppLifecycleState.detached:
@@ -860,8 +898,41 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
   }
 
-  Future<void> _releaseCameraForBackground() async {
+  Future<void> _handleBackground() async {
+    final existing = _backgroundTask;
+
+    if (existing != null) {
+      return existing;
+    }
+
+    final task = _handleBackgroundInternal();
+    _backgroundTask = task;
+
+    try {
+      await task;
+    } finally {
+      if (identical(_backgroundTask, task)) {
+        _backgroundTask = null;
+      }
+    }
+  }
+
+  Future<void> _handleBackgroundInternal() async {
+    // Wait for camera initialization before disposing.
     await _cameraInitialization;
+
+    if (!mounted) return;
+
+    // An operation may still be starting or stopping.
+    if (_busy || _savingProject) return;
+
+    if (_isRecording) {
+      await _finishRecording(interrupted: true);
+    }
+
+    if (!mounted || _busy || _savingProject) {
+      return;
+    }
 
     final camera = _controller;
     _controller = null;
@@ -869,40 +940,96 @@ class _CaptureScreenState extends State<CaptureScreen>
     try {
       await camera?.dispose();
     } catch (e) {
-      debugPrint('Camera release error: $e');
+      debugPrint('Background camera dispose failed: $e');
     }
 
-    if (!mounted) return;
-
-    setState(() {
-      _loading = _selectedVideo == null;
-    });
+    if (mounted) {
+      setState(() {
+        _loading = _selectedVideo == null;
+      });
+    }
   }
 
-  Future<void> _restoreCameraAfterBackground() async {
-    await _cameraRelease;
+  // ==========================================
+  // RESTORE AFTER APP RESUMES
+  // ==========================================
+
+  Future<void> _handleResume() async {
+    final existing = _resumeTask;
+
+    if (existing != null) {
+      return existing;
+    }
+
+    final task = _handleResumeInternal();
+    _resumeTask = task;
+
+    try {
+      await task;
+    } finally {
+      if (identical(_resumeTask, task)) {
+        _resumeTask = null;
+      }
+    }
+  }
+
+  Future<void> _handleResumeInternal() async {
+    // Wait for any active background operation.
+    await _backgroundTask;
 
     if (!mounted ||
         _appInBackground ||
-        _isRecording ||
         _busy ||
-        _savingProject) {
+        _savingProject ||
+        _isRecording) {
+      return;
+    }
+
+    final pending = _pendingInterruptedVideo;
+
+    if (pending != null) {
+      _pendingInterruptedVideo = null;
+
+      try {
+        await _prepareVideoPreview(pending);
+
+        if (mounted) {
+          setState(() {
+            _error =
+                'Recording stopped because the app '
+                'entered the background. '
+                'Review and save it.';
+            _loading = false;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error =
+                'Video captured, but '
+                'preview failed: $e';
+          });
+        }
+      }
       return;
     }
 
     if (_selectedVideo != null) {
-      setState(() {
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
       return;
     }
 
-    final controller = _controller;
-
-    if (controller != null && controller.value.isInitialized) {
-      setState(() {
-        _loading = false;
-      });
+    if (_controller?.value.isInitialized == true) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
       return;
     }
 
@@ -919,7 +1046,6 @@ class _CaptureScreenState extends State<CaptureScreen>
 
     _countdownToken++;
     _stopTimer();
-    _stopwatch.stop();
 
     unawaited(_sensorService.dispose());
 
@@ -950,7 +1076,9 @@ class _CaptureScreenState extends State<CaptureScreen>
             ),
           ),
         ),
+
         const SizedBox(height: 12),
+
         ElevatedButton.icon(
           onPressed: _savingProject ? null : _togglePlayback,
           icon: Icon(player.value.isPlaying ? Icons.pause : Icons.play_arrow),
@@ -961,31 +1089,32 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   // ==========================================
-  // CAMERA PREVIEW UI
+  // CAMERA PREVIEW + FACE FRAMING
   // ==========================================
 
-  Widget _buildCameraPreview(CameraController controller) {
+  Widget _buildCameraPreview(CameraController camera) {
     return Center(
       child: AspectRatio(
-        aspectRatio: controller.value.aspectRatio,
+        aspectRatio: camera.value.aspectRatio,
         child: Stack(
           fit: StackFit.expand,
           children: [
-            CameraPreview(controller),
+            CameraPreview(camera),
 
             if (_showFramingGuide) const Positioned.fill(child: FramingGuide()),
 
             if (_isCountingDown)
               Positioned.fill(
-                child: Container(
+                child: ColoredBox(
                   color: Colors.black38,
-                  alignment: Alignment.center,
-                  child: Text(
-                    '$_countdownRemaining',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 90,
-                      fontWeight: FontWeight.bold,
+                  child: Center(
+                    child: Text(
+                      '$_countdownRemaining',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 90,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -1000,10 +1129,10 @@ class _CaptureScreenState extends State<CaptureScreen>
   // CAMERA CONTROLS
   // ==========================================
 
-  Widget _buildCameraView(CameraController controller) {
+  Widget _buildCameraView(CameraController camera) {
     return Column(
       children: [
-        Expanded(child: _buildCameraPreview(controller)),
+        Expanded(child: _buildCameraPreview(camera)),
 
         const SizedBox(height: 8),
 
@@ -1019,8 +1148,8 @@ class _CaptureScreenState extends State<CaptureScreen>
 
         if (_isCountingDown)
           Text(
-            'Recording starts in $_countdownRemaining...',
-            style: const TextStyle(fontWeight: FontWeight.bold),
+            'Recording starts in '
+            '$_countdownRemaining...',
           ),
 
         const SizedBox(height: 8),
@@ -1030,6 +1159,7 @@ class _CaptureScreenState extends State<CaptureScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text('Countdown: '),
+
               DropdownButton<int>(
                 value: _selectedCountdown,
                 items: const [
@@ -1041,10 +1171,11 @@ class _CaptureScreenState extends State<CaptureScreen>
                 onChanged: _busy
                     ? null
                     : (value) {
-                        if (value == null) return;
-                        setState(() {
-                          _selectedCountdown = value;
-                        });
+                        if (value != null) {
+                          setState(() {
+                            _selectedCountdown = value;
+                          });
+                        }
                       },
               ),
             ],
@@ -1116,7 +1247,7 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   @override
   Widget build(BuildContext context) {
-    final controller = _controller;
+    final camera = _controller;
     final hasVideo = _selectedVideo != null;
 
     return Scaffold(
@@ -1135,6 +1266,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.red),
                     ),
+
                     if (!_isRecording &&
                         !_isCountingDown &&
                         !_busy &&
@@ -1152,8 +1284,8 @@ class _CaptureScreenState extends State<CaptureScreen>
                   ? const Center(child: CircularProgressIndicator())
                   : hasVideo
                   ? _buildVideoPreview()
-                  : controller != null && controller.value.isInitialized
-                  ? _buildCameraView(controller)
+                  : camera != null && camera.value.isInitialized
+                  ? _buildCameraView(camera)
                   : const Center(child: Text('Camera unavailable')),
             ),
 
@@ -1166,10 +1298,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                     if (_isImportedVideo)
                       const Padding(
                         padding: EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          'Imported video',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
+                        child: Text('Imported video'),
                       ),
 
                     SizedBox(
