@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:camera/camera.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -39,14 +41,15 @@ class CaptureProjectService {
       );
     }
 
-    // Get the currently authenticated Firebase user.
     final user = _auth.currentUser;
 
     if (user == null) {
       throw StateError('Please log in before saving a project.');
     }
 
-    if (title.trim().isEmpty) {
+    final cleanTitle = title.trim();
+
+    if (cleanTitle.isEmpty) {
       throw ArgumentError('Project title cannot be empty.');
     }
 
@@ -54,43 +57,72 @@ class CaptureProjectService {
       throw ArgumentError('Invalid video duration or dimensions.');
     }
 
-    // Generate IDs once for all related files and metadata.
     final projectId = _uuid.v4();
     final clipId = _uuid.v4();
 
     final now = DateTime.now().toUtc().toIso8601String();
 
-    // Create Project metadata.
     final project = Project(
       id: projectId,
       userId: user.uid,
-      title: title.trim(),
+      title: cleanTitle,
       createdAt: now,
       updatedAt: now,
       clipIds: const [],
     );
 
-    // Save the recorded or imported video locally.
-    final localPath = await _videoStorageService.saveVideo(
-      video: video,
-      projectId: projectId,
-      clipId: clipId,
-    );
-
-    // Save motion sensor data only for recorded videos.
-    // Imported videos do not have original sensor readings.
+    late final String localPath;
     String? sensorDataPath;
 
-    if (!isImportedVideo &&
-        sensorService != null &&
-        sensorService.sampleCount > 0) {
-      sensorDataPath = await sensorService.saveSensorData(
+    // ==========================================
+    // PHASE 1: LOCAL FILE PREPARATION
+    // ==========================================
+    //
+    // No Firestore writes have started here.
+    // Cleanup is safe because these IDs are new.
+
+    try {
+      localPath = await _videoStorageService.saveVideo(
+        video: video,
         projectId: projectId,
         clipId: clipId,
       );
+
+      if (!isImportedVideo &&
+          sensorService != null &&
+          sensorService.sampleCount > 0) {
+        sensorDataPath = await sensorService.saveSensorData(
+          projectId: projectId,
+          clipId: clipId,
+        );
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Local project preparation failed: $error');
+
+      try {
+        await _videoStorageService.deleteUncommittedProjectFiles(
+          projectId: projectId,
+        );
+      } catch (cleanupError) {
+        debugPrint(
+          'Local cleanup failed for $projectId: '
+          '$cleanupError',
+        );
+      }
+
+      if (_isStorageFull(error)) {
+        Error.throwWithStackTrace(
+          const FileSystemException(
+            'Not enough storage to save the project. '
+            'Free device space and try again.',
+          ),
+          stackTrace,
+        );
+      }
+
+      Error.throwWithStackTrace(error, stackTrace);
     }
 
-    // Create Clip metadata using actual saved paths.
     final clip = Clip(
       id: clipId,
       projectId: projectId,
@@ -102,15 +134,66 @@ class CaptureProjectService {
       order: 0,
     );
 
-    // Save metadata using Member 2's repository.
-    // This does not upload the actual video to Firebase.
-    await _projectRepository.createProject(project);
+    // ==========================================
+    // PHASE 2: FIRESTORE METADATA WRITES
+    // ==========================================
+    //
+    // These repository calls are currently separate.
+    // A failed call may have an uncertain server result.
+    //
+    // Therefore DO NOT delete local project files here.
+    // They may already be referenced by Firestore data.
 
-    await _projectRepository.addClip(clip);
+    try {
+      await _projectRepository.createProject(project);
+
+      await _projectRepository.addClip(clip);
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Firestore save failed for project $projectId '
+        'and clip $clipId: $error',
+      );
+
+      debugPrint('Preserved local video: $localPath');
+
+      if (sensorDataPath != null) {
+        debugPrint('Preserved sensor file: $sensorDataPath');
+      }
+
+      Error.throwWithStackTrace(
+        StateError(
+          'Unable to complete Firebase project saving. '
+          'Your local video has been preserved. '
+          'Project ID: $projectId. '
+          'Do not uninstall the app or clear app data. '
+          'Check Firebase connection and project records '
+          'before attempting another save. '
+          'Details: $error',
+        ),
+        stackTrace,
+      );
+    }
+
+    // ==========================================
+    // SAVE COMPLETED
+    // ==========================================
 
     return project.copyWith(
       clipIds: [clipId],
       updatedAt: DateTime.now().toUtc().toIso8601String(),
     );
+  }
+
+  bool _isStorageFull(Object error) {
+    if (error is FileSystemException && error.osError?.errorCode == 28) {
+      return true;
+    }
+
+    final description = error.toString().toLowerCase();
+
+    return description.contains('no space left on device') ||
+        description.contains('not enough storage') ||
+        description.contains('not enough device storage') ||
+        description.contains('storage full');
   }
 }

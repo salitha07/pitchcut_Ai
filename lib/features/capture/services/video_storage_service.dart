@@ -6,14 +6,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 class VideoStorageService {
-  // Save a recorded or imported video to local app storage.
+  /// Save a recorded or imported video inside app documents.
   Future<String> saveVideo({
     required XFile video,
     required String projectId,
     required String clipId,
   }) async {
-    // The project contract currently supports Android
-    // absolute local file paths, not browser blob URLs.
     if (kIsWeb) {
       throw UnsupportedError(
         'Permanent local video storage is not available '
@@ -21,63 +19,121 @@ class VideoStorageService {
       );
     }
 
-    if (projectId.isEmpty || clipId.isEmpty) {
+    if (projectId.trim().isEmpty || clipId.trim().isEmpty) {
       throw ArgumentError('Project ID and Clip ID cannot be empty.');
     }
 
-    // Find the app's documents directory.
     final appDirectory = await getApplicationDocumentsDirectory();
 
-    // Create: app_documents/videos/<projectId>/
-    final videoDirectory = Directory(
+    final projectDirectory = Directory(
       p.join(appDirectory.path, 'videos', projectId),
     );
 
-    await videoDirectory.create(recursive: true);
-
-    // Preserve the actual video file extension.
     final originalExtension = p.extension(video.name).toLowerCase();
+
+    final sourceExtension = p.extension(video.path).toLowerCase();
 
     final extension = originalExtension.isNotEmpty
         ? originalExtension
-        : p.extension(video.path).toLowerCase();
+        : sourceExtension;
 
     if (extension.isEmpty) {
       throw const FormatException('Video file extension is missing.');
     }
 
-    // Construct the destination path.
-    final savedPath = p.join(videoDirectory.path, '$clipId$extension');
+    final savedPath = p.join(projectDirectory.path, '$clipId$extension');
 
-    // Prevent accidental overwriting.
-    if (await File(savedPath).exists()) {
-      throw StateError('A video with this Clip ID already exists.');
-    }
+    final destination = File(savedPath);
 
-    // Copy the video to permanent local storage.
     try {
+      await projectDirectory.create(recursive: true);
+
+      if (await destination.exists()) {
+        throw StateError('A video with this Clip ID already exists.');
+      }
+
       await video.saveTo(savedPath);
 
-      final savedFile = File(savedPath);
+      if (!await destination.exists()) {
+        throw FileSystemException('Saved video was not found.', savedPath);
+      }
 
-      // Verify that the saved file exists.
-      if (!await savedFile.exists() || await savedFile.length() == 0) {
-        throw FileSystemException(
-          'Saved video is missing or empty.',
-          savedPath,
+      final fileSize = await destination.length();
+
+      if (fileSize <= 0) {
+        throw FileSystemException('Saved video is empty.', savedPath);
+      }
+
+      return destination.absolute.path;
+    } on FileSystemException catch (e) {
+      await _deleteIncompleteFile(destination);
+
+      if (_isStorageFull(e)) {
+        throw const FileSystemException(
+          'Not enough device storage to save this video. '
+          'Free some storage space and try again.',
         );
       }
 
-      return savedFile.absolute.path;
-    } catch (_) {
-      // Remove an incomplete destination file.
-      final incompleteFile = File(savedPath);
-
-      if (await incompleteFile.exists()) {
-        await incompleteFile.delete();
-      }
-
       rethrow;
+    } catch (_) {
+      await _deleteIncompleteFile(destination);
+      rethrow;
+    }
+  }
+
+  /// Delete only an incomplete file created by a failed copy.
+  Future<void> _deleteIncompleteFile(File file) async {
+    try {
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('Unable to remove incomplete video: $e');
+    }
+  }
+
+  /// Detect Android/Linux ENOSPC.
+  bool _isStorageFull(FileSystemException error) {
+    const noSpaceLeftOnDevice = 28;
+
+    final errorCode = error.osError?.errorCode;
+
+    if (errorCode == noSpaceLeftOnDevice) {
+      return true;
+    }
+
+    final message = error.toString().toLowerCase();
+
+    return message.contains('no space left on device') ||
+        message.contains('not enough space') ||
+        message.contains('storage full');
+  }
+
+  /// Remove project-local files only when the caller knows
+  /// that no Firestore metadata write has been attempted.
+  ///
+  /// Never call this after an uncertain Firebase write result.
+  Future<void> deleteUncommittedProjectFiles({
+    required String projectId,
+  }) async {
+    if (kIsWeb) {
+      return;
+    }
+
+    if (projectId.trim().isEmpty ||
+        !RegExp(r'^[a-zA-Z0-9-]+$').hasMatch(projectId)) {
+      throw ArgumentError('Invalid project ID for cleanup.');
+    }
+
+    final appDirectory = await getApplicationDocumentsDirectory();
+
+    final projectDirectory = Directory(
+      p.join(appDirectory.path, 'videos', projectId),
+    );
+
+    if (await projectDirectory.exists()) {
+      await projectDirectory.delete(recursive: true);
     }
   }
 }
