@@ -15,6 +15,7 @@ import '../../features/history/history_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import 'app_shell.dart';
+import '../../features/editor/debug/engine_debug_screen.dart';
 
 /// Refreshes GoRouter whenever Firebase authentication changes.
 class GoRouterRefreshStream extends ChangeNotifier {
@@ -63,6 +64,12 @@ final appRouter = GoRouter(
   },
 
   routes: [
+    // Temporary M4 video engine debug screen (debug builds only).
+    if (kDebugMode)
+      GoRoute(
+        path: '/engine-debug',
+        builder: (context, state) => const EngineDebugScreen(),
+      ),
     // Authentication
     GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
     GoRoute(path: '/signup', builder: (context, state) => const SignupScreen()),
