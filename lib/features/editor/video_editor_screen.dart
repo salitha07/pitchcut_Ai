@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pitchcut_ai/features/editor/models/trim_range.dart';
 import 'package:pitchcut_ai/features/editor/models/crop_rect.dart';
+import 'package:pitchcut_ai/features/editor/models/editor_state_snapshot.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_command_history.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_project_store.dart';
@@ -28,8 +29,8 @@ class VideoEditorScreen extends StatefulWidget {
 
 class _VideoEditorScreenState extends State<VideoEditorScreen> {
   final List<VideoClip> _clips = [];
-  final EditorCommandHistory<List<VideoClip>> _history =
-      EditorCommandHistory<List<VideoClip>>();
+  final EditorCommandHistory<EditorStateSnapshot> _history =
+      EditorCommandHistory<EditorStateSnapshot>();
   final EditorProjectStore _projectStore = EditorProjectStore();
   final VideoTrimService _trimService = VideoTrimService();
   VideoPlayerController? _controller;
@@ -53,6 +54,19 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
 
   Duration get _totalDuration =>
       _clips.fold(Duration.zero, (total, clip) => total + clip.duration);
+
+  bool get _isBusy => _isTrimming || _isExporting;
+
+  EditorStateSnapshot _captureState() => EditorStateSnapshot(
+    clips: _clips,
+    selectedClipIndex: _selectedClipIndex,
+    trimRange: _trimRange,
+    timelinePosition: _timelinePosition,
+  );
+
+  void _recordEdit(EditorStateSnapshot before) {
+    _history.record(before: before, after: _captureState());
+  }
 
   @override
   void initState() {
@@ -200,13 +214,12 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       final probed = await _probeClip(path, file.name);
       await probed.controller.dispose();
       if (!mounted) return;
-      final before = List<VideoClip>.unmodifiable(_clips);
-      final after = List<VideoClip>.unmodifiable([..._clips, probed.clip]);
+      final before = _captureState();
       setState(() {
         _clips.add(probed.clip);
         _loadError = null;
       });
-      _history.record(before: before, after: after);
+      _recordEdit(before);
       await _persistProject();
     } catch (error) {
       if (mounted) _showMessage('Could not add this video: $error');
@@ -247,11 +260,10 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       );
       return;
     }
-    final before = List<VideoClip>.unmodifiable(_clips);
+    final before = _captureState();
     final after = TimelineOperations.split(_clips, index, clipPosition);
     _isPlaybackActive = false;
     await _controller?.pause();
-    _history.record(before: before, after: List.unmodifiable(after));
     _clips
       ..clear()
       ..addAll(after);
@@ -261,14 +273,14 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       end: _clips[_selectedClipIndex].duration,
     );
     setState(() => _timelinePosition = _clipStart(_selectedClipIndex));
+    _recordEdit(before);
     await _persistProject();
   }
 
   Future<void> _deleteSelectedClip() async {
     if (_clips.isEmpty) return;
-    final before = List<VideoClip>.unmodifiable(_clips);
+    final before = _captureState();
     final after = TimelineOperations.delete(_clips, _selectedClipIndex);
-    _history.record(before: before, after: List.unmodifiable(after));
     _isPlaybackActive = false;
     final previous = _controller;
     _controller = null;
@@ -291,6 +303,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       _selectedClipIndex = _selectedClipIndex.clamp(0, _clips.length - 1);
       await _activateClip(_selectedClipIndex);
     }
+    _recordEdit(before);
     await _persistProject();
   }
 
@@ -303,9 +316,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     final controllerPosition =
         _controller?.value.position ?? selectedClip.sourceStart;
     final localPosition = controllerPosition - selectedClip.sourceStart;
-    final before = List<VideoClip>.unmodifiable(_clips);
+    final before = _captureState();
     final after = TimelineOperations.reorder(_clips, from, to);
-    _history.record(before: before, after: List.unmodifiable(after));
     _clips
       ..clear()
       ..addAll(after);
@@ -313,6 +325,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     setState(
       () => _timelinePosition = _clipStart(_selectedClipIndex) + localPosition,
     );
+    _recordEdit(before);
     await _persistProject();
   }
 
@@ -338,7 +351,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       );
       return;
     }
-    final before = List<VideoClip>.unmodifiable(_clips);
+    final before = _captureState();
     List<VideoClip> after;
     if (TimelineOperations.canMergeWithoutRendering(firstClip, secondClip)) {
       after = TimelineOperations.merge(_clips, firstIndex);
@@ -371,27 +384,27 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
         if (mounted) setState(() => _isExporting = false);
       }
     }
-    _history.record(before: before, after: List.unmodifiable(after));
     _clips
       ..clear()
       ..addAll(after);
     _selectedClipIndex = firstIndex;
     await _activateClip(_selectedClipIndex);
+    _recordEdit(before);
     await _persistProject();
   }
 
   Future<void> _rotateSelectedClip() async {
     if (_clips.isEmpty) return;
-    final before = List<VideoClip>.unmodifiable(_clips);
+    final before = _captureState();
     final after = List<VideoClip>.of(_clips);
     after[_selectedClipIndex] = TimelineOperations.rotate(
       after[_selectedClipIndex],
     );
-    _history.record(before: before, after: List.unmodifiable(after));
     _clips
       ..clear()
       ..addAll(after);
     setState(() {});
+    _recordEdit(before);
     await _persistProject();
   }
 
@@ -407,17 +420,17 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
 
   Future<void> _applyCrop() async {
     if (_clips.isEmpty || !_draftCrop.isValid) return;
-    final before = List<VideoClip>.unmodifiable(_clips);
+    final before = _captureState();
     final after = List<VideoClip>.of(_clips);
     after[_selectedClipIndex] = TimelineOperations.crop(
       after[_selectedClipIndex],
       _draftCrop,
     );
-    _history.record(before: before, after: List.unmodifiable(after));
     _clips
       ..clear()
       ..addAll(after);
     setState(() => _isCropping = false);
+    _recordEdit(before);
     await _persistProject();
   }
 
@@ -636,6 +649,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       return;
     }
 
+    final before = _captureState();
     setState(() => _isTrimming = true);
     _isPlaybackActive = false;
     await _controller?.pause();
@@ -651,20 +665,18 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       final probed = await _probeClip(outputPath, clip.name);
       await probed.controller.dispose();
 
-      final before = List<VideoClip>.unmodifiable(_clips);
       final afterClips = List<VideoClip>.of(_clips);
       afterClips[_selectedClipIndex] = probed.clip.copyWith(
         rotationDegrees: clip.rotationDegrees,
         crop: clip.crop,
       );
-      final after = List<VideoClip>.unmodifiable(afterClips);
-      _history.record(before: before, after: after);
       final index = _selectedClipIndex;
       _clips
         ..clear()
-        ..addAll(after);
+        ..addAll(afterClips);
       setState(() => _timelinePosition = _clipStart(index));
       await _activateClip(index);
+      _recordEdit(before);
       await _persistProject();
       if (mounted) _showMessage('Trim applied to ${clip.name}.');
     } catch (error) {
@@ -678,35 +690,44 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     final snapshot = undo ? _history.undo() : _history.redo();
     if (snapshot == null) return;
     _isPlaybackActive = false;
-    final preferredClip = _clips.isEmpty ? null : _clips[_selectedClipIndex];
-    if (snapshot.isEmpty) {
+    if (snapshot.clips.isEmpty) {
       final previous = _controller;
       _controller = null;
       previous?.removeListener(_onVideoChanged);
       await previous?.dispose();
       _clips.clear();
+      _selectedClipIndex = snapshot.selectedClipIndex;
       if (mounted) {
         setState(() {
-          _timelinePosition = Duration.zero;
-          _trimRange = const TrimRange(
-            start: Duration.zero,
-            end: Duration.zero,
-          );
+          _timelinePosition = snapshot.timelinePosition;
+          _trimRange = snapshot.trimRange;
+          _isLoading = false;
+          _loadError = null;
         });
       }
       await _persistProject();
       return;
     }
-    final restoredIndex = preferredClip == null
-        ? -1
-        : snapshot.indexOf(preferredClip);
-    final index = restoredIndex >= 0
-        ? restoredIndex
-        : _selectedClipIndex.clamp(0, snapshot.length - 1);
     _clips
       ..clear()
-      ..addAll(snapshot);
-    await _activateClip(index);
+      ..addAll(snapshot.clips);
+    final index = snapshot.selectedClipIndex.clamp(0, _clips.length - 1);
+    final clipStart = _clipStart(index);
+    final clip = _clips[index];
+    final range = snapshot.trimRange.isValidFor(clip.duration)
+        ? snapshot.trimRange
+        : TrimRange(start: Duration.zero, end: clip.duration);
+    final requestedLocal = snapshot.timelinePosition - clipStart;
+    final localPosition = Duration(
+      milliseconds: requestedLocal.inMilliseconds
+          .clamp(range.start.inMilliseconds, range.end.inMilliseconds)
+          .toInt(),
+    );
+    await _activateClip(index, position: localPosition);
+    _selectedClipIndex = index;
+    _trimRange = range;
+    _timelinePosition = clipStart + localPosition;
+    if (mounted) setState(() {});
     await _persistProject();
   }
 
@@ -773,14 +794,14 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
         actions: [
           IconButton(
             tooltip: 'Undo',
-            onPressed: _history.canUndo && !_isTrimming
+            onPressed: _history.canUndo && !_isBusy && !_isCropping
                 ? () => _restoreHistory(undo: true)
                 : null,
             icon: const Icon(Icons.undo),
           ),
           IconButton(
             tooltip: 'Redo',
-            onPressed: _history.canRedo && !_isTrimming
+            onPressed: _history.canRedo && !_isBusy && !_isCropping
                 ? () => _restoreHistory(undo: false)
                 : null,
             icon: const Icon(Icons.redo),
@@ -788,13 +809,13 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
           IconButton(
             key: const ValueKey('add-video-clip'),
             tooltip: 'Add video clip',
-            onPressed: _addClip,
+            onPressed: !_isBusy && !_isCropping ? _addClip : null,
             icon: const Icon(Icons.add_to_photos_outlined),
           ),
           IconButton(
             key: const ValueKey('export-video-timeline'),
             tooltip: 'Export timeline',
-            onPressed: _clips.isNotEmpty && !_isExporting
+            onPressed: _clips.isNotEmpty && !_isBusy && !_isCropping
                 ? _exportTimeline
                 : null,
             icon: _isExporting
@@ -858,7 +879,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                             value: positionSeconds
                                 .clamp(0, totalSeconds)
                                 .toDouble(),
-                            onChanged: _clips.isNotEmpty && !_isCropping
+                            onChanged:
+                                _clips.isNotEmpty && !_isCropping && !_isBusy
                                 ? (seconds) => _seekToTimeline(
                                     Duration(
                                       milliseconds: (seconds * 1000).round(),
@@ -873,7 +895,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                     IconButton.filledTonal(
                       key: const ValueKey('video-play-pause'),
                       tooltip: value?.isPlaying ?? false ? 'Pause' : 'Play',
-                      onPressed: ready && !_isCropping ? _togglePlayback : null,
+                      onPressed: ready && !_isCropping && !_isBusy
+                          ? _togglePlayback
+                          : null,
                       iconSize: 32,
                       icon: Icon(
                         value?.isPlaying ?? false
@@ -889,7 +913,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                       children: [
                         OutlinedButton.icon(
                           key: const ValueKey('merge-selected-clips'),
-                          onPressed: _clips.length >= 2 && !_isCropping
+                          onPressed:
+                              _clips.length >= 2 && !_isCropping && !_isBusy
                               ? _mergeAdjacentClips
                               : null,
                           icon: const Icon(Icons.merge_type),
@@ -901,7 +926,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                         ),
                         OutlinedButton.icon(
                           key: const ValueKey('rotate-selected-clip'),
-                          onPressed: _clips.isNotEmpty && !_isCropping
+                          onPressed:
+                              _clips.isNotEmpty && !_isCropping && !_isBusy
                               ? _rotateSelectedClip
                               : null,
                           icon: const Icon(Icons.rotate_right),
@@ -912,7 +938,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                         if (!_isCropping)
                           OutlinedButton.icon(
                             key: const ValueKey('crop-selected-clip'),
-                            onPressed: _clips.isNotEmpty ? _beginCrop : null,
+                            onPressed: _clips.isNotEmpty && !_isBusy
+                                ? _beginCrop
+                                : null,
                             icon: const Icon(Icons.crop),
                             label: const Text('Crop'),
                           )
@@ -933,6 +961,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                           key: const ValueKey('split-selected-clip'),
                           onPressed:
                               !_isCropping &&
+                                  !_isBusy &&
                                   _clips.isNotEmpty &&
                                   TimelineOperations.canSplit(
                                     _clips[_selectedClipIndex],
@@ -946,7 +975,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                         ),
                         OutlinedButton.icon(
                           key: const ValueKey('delete-selected-clip'),
-                          onPressed: _clips.isNotEmpty && !_isCropping
+                          onPressed:
+                              _clips.isNotEmpty && !_isCropping && !_isBusy
                               ? _deleteSelectedClip
                               : null,
                           icon: const Icon(Icons.delete_outline),
@@ -956,7 +986,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                           key: const ValueKey('apply-video-trim'),
                           onPressed:
                               !_isCropping &&
-                                  !_isTrimming &&
+                                  !_isBusy &&
                                   _clips.isNotEmpty &&
                                   _trimRange.isValidFor(
                                     _clips[_selectedClipIndex].duration,
@@ -999,10 +1029,12 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                   selectedClipIndex: _selectedClipIndex,
                   position: _timelinePosition,
                   trimRange: _trimRange,
-                  onSeek: _isCropping ? (_) {} : _seekToTimeline,
-                  onClipSelected: _isCropping ? (_) {} : _selectClip,
-                  onTrimChanged: _isCropping ? (_) {} : _onTrimRangeChanged,
-                  onReorder: _isCropping ? (_, _) {} : _reorderClips,
+                  onSeek: _isCropping || _isBusy ? (_) {} : _seekToTimeline,
+                  onClipSelected: _isCropping || _isBusy ? (_) {} : _selectClip,
+                  onTrimChanged: _isCropping || _isBusy
+                      ? (_) {}
+                      : _onTrimRangeChanged,
+                  onReorder: _isCropping || _isBusy ? (_, _) {} : _reorderClips,
                 ),
               ),
             ],
