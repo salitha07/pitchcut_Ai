@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:pitchcut_ai/features/editor/models/trim_range.dart';
 import 'package:pitchcut_ai/features/editor/models/crop_rect.dart';
 import 'package:pitchcut_ai/features/editor/models/editor_state_snapshot.dart';
+import 'package:pitchcut_ai/features/editor/models/editor_suggestion.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_command_history.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_project_store.dart';
@@ -15,14 +16,25 @@ import 'package:pitchcut_ai/features/editor/services/video_trim_service.dart';
 import 'package:pitchcut_ai/features/editor/video_export_screen.dart';
 import 'package:pitchcut_ai/features/editor/widgets/video_timeline.dart';
 import 'package:pitchcut_ai/features/editor/widgets/crop_frame_editor.dart';
+import 'package:pitchcut_ai/features/editor/widgets/suggestion_bar.dart';
 import 'package:video_player/video_player.dart';
 
 /// A local video editor preview with a multi-clip playback timeline.
 class VideoEditorScreen extends StatefulWidget {
-  const VideoEditorScreen({super.key, required this.videoPath, this.videoName});
+  const VideoEditorScreen({
+    super.key,
+    required this.videoPath,
+    this.videoName,
+    this.suggestions = const [],
+    this.onSuggestionAccepted,
+    this.onSuggestionDismissed,
+  });
 
   final String videoPath;
   final String? videoName;
+  final List<EditorSuggestion> suggestions;
+  final ValueChanged<EditorSuggestion>? onSuggestionAccepted;
+  final ValueChanged<EditorSuggestion>? onSuggestionDismissed;
 
   @override
   State<VideoEditorScreen> createState() => _VideoEditorScreenState();
@@ -35,6 +47,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   final EditorProjectStore _projectStore = EditorProjectStore();
   final VideoTrimService _trimService = VideoTrimService();
   List<SavedExport> _savedExports = const [];
+  final Set<String> _dismissedSuggestionIds = {};
   VideoPlayerController? _controller;
   String? _loadError;
   bool _isLoading = true;
@@ -460,6 +473,48 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       setState(() => _savedExports = project.exports);
   }
 
+  List<EditorSuggestion> get _visibleSuggestions => widget.suggestions
+      .where((suggestion) => !_dismissedSuggestionIds.contains(suggestion.id))
+      .toList(growable: false);
+
+  void _dismissSuggestion(EditorSuggestion suggestion) {
+    setState(() => _dismissedSuggestionIds.add(suggestion.id));
+    widget.onSuggestionDismissed?.call(suggestion);
+  }
+
+  Future<void> _acceptSuggestion(EditorSuggestion suggestion) async {
+    final action = suggestion.action;
+    if (action is SeekSuggestionAction) {
+      if (_isValidTimelinePosition(action.position)) {
+        await _seekToTimeline(action.position);
+      } else {
+        _showMessage('That suggestion points outside the current timeline.');
+      }
+    } else if (action is SplitSuggestionAction) {
+      if (_isValidTimelinePosition(action.position)) {
+        await _seekToTimeline(action.position);
+        if (_clips.isNotEmpty) await _splitSelectedClip();
+      } else {
+        _showMessage('That split point is outside the current timeline.');
+      }
+    } else if (action is TrimSuggestionAction) {
+      if (action.clipIndex >= 0 &&
+          action.clipIndex < _clips.length &&
+          action.range.isValidFor(_clips[action.clipIndex].duration)) {
+        await _selectClip(action.clipIndex);
+        _onTrimRangeChanged(action.range);
+        await _trimSelectedClip();
+      } else {
+        _showMessage('That trim range is no longer valid for the timeline.');
+      }
+    }
+    setState(() => _dismissedSuggestionIds.add(suggestion.id));
+    widget.onSuggestionAccepted?.call(suggestion);
+  }
+
+  bool _isValidTimelinePosition(Duration position) =>
+      position >= Duration.zero && position <= _totalDuration;
+
   void _onVideoChanged() {
     if (!mounted) return;
     final controller = _controller;
@@ -850,6 +905,14 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                     child: _buildPreview(controller, ready),
                   ),
                 ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: SuggestionBar(
+                suggestions: _visibleSuggestions,
+                onAccept: _acceptSuggestion,
+                onDismiss: _dismissSuggestion,
               ),
             ),
             if (_loadError != null)
