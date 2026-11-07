@@ -165,13 +165,18 @@ class EditorProjectStore {
     }
     final thumbnail = thumbnailBytes == null
         ? null
-        : File('${directory.path}/${destination.uri.pathSegments.last.replaceFirst('.mp4', '.jpg')}');
+        : File(
+            '${directory.path}/${destination.uri.pathSegments.last.replaceFirst('.mp4', '.jpg')}',
+          );
     var copied = false;
     try {
       await source.copy(destination.path);
       copied = true;
       if (await destination.length() != await source.length()) {
-        throw FileSystemException('The saved video copy is incomplete.', destination.path);
+        throw FileSystemException(
+          'The saved video copy is incomplete.',
+          destination.path,
+        );
       }
       if (thumbnail != null)
         await thumbnail.writeAsBytes(thumbnailBytes!, flush: true);

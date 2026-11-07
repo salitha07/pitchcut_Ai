@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
@@ -143,5 +146,42 @@ void main() {
 
     expect(selectedIndex, 1);
     expect(find.text('00:10'), findsWidgets);
+  });
+
+  testWidgets('renders a generated clip thumbnail when supplied', (
+    tester,
+  ) async {
+    final clip = clips.first.copyWith(
+      thumbnail: Uint8List.fromList(
+        base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 400,
+            child: VideoTimeline(
+              clips: [clip],
+              selectedClipIndex: 0,
+              position: Duration.zero,
+              trimRange: const TrimRange(
+                start: Duration.zero,
+                end: Duration(seconds: 10),
+              ),
+              onSeek: (_) {},
+              onClipSelected: (_) {},
+              onTrimChanged: (_) {},
+              onReorder: (_, _) {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Image), findsOneWidget);
+    expect(find.text('first.mp4'), findsOneWidget);
   });
 }
