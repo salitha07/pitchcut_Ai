@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 
+import 'dart:io';
+
+import 'package:video_player/video_player.dart';
+
+import 'models/trim_range.dart';
 import 'models/video_clip.dart';
 import 'models/video_export_state.dart';
+import 'services/editor_project_store.dart';
 import 'services/video_export_controller.dart';
 import 'services/video_export_service.dart';
+import 'services/video_trim_service.dart';
 
 class VideoExportScreen extends StatefulWidget {
   const VideoExportScreen({
@@ -11,11 +18,19 @@ class VideoExportScreen extends StatefulWidget {
     required this.clips,
     required this.duration,
     required this.sourceAspectRatio,
+    this.projectId,
+    this.projectClips = const [],
+    this.selectedClipIndex = 0,
+    this.trimRange = const TrimRange(start: Duration.zero, end: Duration.zero),
   });
 
   final List<VideoClip> clips;
   final Duration duration;
   final double sourceAspectRatio;
+  final String? projectId;
+  final List<VideoClip> projectClips;
+  final int selectedClipIndex;
+  final TrimRange trimRange;
 
   @override
   State<VideoExportScreen> createState() => _VideoExportScreenState();
@@ -25,6 +40,9 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
   late final VideoExportController _exportController;
   VideoExportQuality _quality = VideoExportQuality.p720;
   bool _openingSuccess = false;
+  bool _savingExport = false;
+  String? _saveError;
+  final EditorProjectStore _projectStore = EditorProjectStore();
 
   @override
   void initState() {
@@ -40,18 +58,67 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
     if (state.status == VideoExportStatus.succeeded && !_openingSuccess) {
       _openingSuccess = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || state.outputPath == null) return;
-        Navigator.of(context).pushReplacement<void, void>(
-          MaterialPageRoute<void>(
-            builder: (_) => VideoExportSuccessScreen(
-              outputPath: state.outputPath!,
-              quality: _quality,
-              duration: widget.duration,
-            ),
-          ),
-        );
+        if (mounted && state.outputPath != null) _saveAndOpenSuccess(state);
       });
     }
+  }
+
+  Future<void> _saveAndOpenSuccess(VideoExportState state) async {
+    final path = state.outputPath!;
+    SavedExport? saved;
+    if (widget.projectId != null) {
+      setState(() {
+        _savingExport = true;
+        _saveError = null;
+      });
+      try {
+        List<int>? thumbnail;
+        try {
+          thumbnail = await VideoTrimService()
+              .generateThumbnail(path)
+              .timeout(const Duration(seconds: 8));
+        } catch (_) {
+          // A thumbnail is optional. The verified video remains saveable.
+        }
+        saved = await _projectStore.saveExportedVideo(
+          projectId: widget.projectId!,
+          sourcePath: path,
+          duration: widget.duration,
+          quality: _quality,
+          exportedAt: DateTime.now(),
+          clips: widget.projectClips,
+          selectedClipIndex: widget.selectedClipIndex,
+          trimRange: widget.trimRange,
+          thumbnailBytes: thumbnail,
+        );
+        try {
+          await _exportController.backend.discardOutput(path);
+        } catch (_) {
+          // The durable project copy is committed; staging cleanup is best effort.
+        }
+      } catch (error) {
+        if (!mounted) return;
+        setState(() {
+          _savingExport = false;
+          _saveError =
+              'Export finished, but saving it to this project failed: $error';
+        });
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _savingExport = false);
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement<void, void>(
+      MaterialPageRoute<void>(
+        builder: (_) => VideoExportSuccessScreen(
+          outputPath: saved?.filePath ?? path,
+          quality: _quality,
+          duration: widget.duration,
+          savedToProject: saved != null,
+        ),
+      ),
+    );
   }
 
   double get _estimatedMegabytes {
@@ -222,6 +289,22 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
                   icon: const Icon(Icons.refresh),
                   label: const Text('Export again'),
                 ),
+              ] else if (state.status == VideoExportStatus.succeeded &&
+                  _savingExport) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 8),
+                const Text('Saving verified video to project…'),
+              ] else if (state.status == VideoExportStatus.succeeded &&
+                  _saveError != null) ...[
+                Text(
+                  _saveError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () => _saveAndOpenSuccess(state),
+                  child: const Text('Retry saving to project'),
+                ),
               ] else ...[
                 FilledButton.icon(
                   key: const ValueKey('start-video-export'),
@@ -246,11 +329,13 @@ class VideoExportSuccessScreen extends StatelessWidget {
     required this.outputPath,
     required this.quality,
     required this.duration,
+    this.savedToProject = false,
   });
 
   final String outputPath;
   final VideoExportQuality quality;
   final Duration duration;
+  final bool savedToProject;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -275,6 +360,20 @@ class VideoExportSuccessScreen extends StatelessWidget {
             const SizedBox(height: 12),
             Text('${quality.label} · MP4 · ${_durationText(duration)}'),
             const SizedBox(height: 8),
+            if (savedToProject) ...[
+              const SizedBox(height: 8),
+              const Text('Saved to this project'),
+              const SizedBox(height: 8),
+              FilledButton.tonalIcon(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => SavedVideoPlayerScreen(path: outputPath),
+                  ),
+                ),
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Play saved video'),
+              ),
+            ],
             SelectableText(outputPath, textAlign: TextAlign.center),
             const SizedBox(height: 24),
             FilledButton(
@@ -289,6 +388,71 @@ class VideoExportSuccessScreen extends StatelessWidget {
 
   static String _durationText(Duration value) =>
       '${value.inMinutes}:${(value.inSeconds % 60).toString().padLeft(2, '0')}';
+}
+
+class SavedVideoPlayerScreen extends StatefulWidget {
+  const SavedVideoPlayerScreen({super.key, required this.path});
+  final String path;
+
+  @override
+  State<SavedVideoPlayerScreen> createState() => _SavedVideoPlayerScreenState();
+}
+
+class _SavedVideoPlayerScreenState extends State<SavedVideoPlayerScreen> {
+  late final VideoPlayerController _controller;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.file(File(widget.path))
+      ..initialize()
+          .then((_) {
+            if (mounted) setState(() {});
+          })
+          .catchError((Object error) {
+            if (mounted)
+              setState(() => _error = 'Could not open saved video: $error');
+          });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Saved edited video')),
+    body: Center(
+      child: _error != null
+          ? Text(_error!)
+          : !_controller.value.isInitialized
+          ? const CircularProgressIndicator()
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AspectRatio(
+                  aspectRatio: _controller.value.aspectRatio,
+                  child: VideoPlayer(_controller),
+                ),
+                IconButton(
+                  onPressed: () => setState(
+                    () => _controller.value.isPlaying
+                        ? _controller.pause()
+                        : _controller.play(),
+                  ),
+                  icon: Icon(
+                    _controller.value.isPlaying
+                        ? Icons.pause
+                        : Icons.play_arrow,
+                  ),
+                ),
+              ],
+            ),
+    ),
+  );
 }
 
 class _InfoRow extends StatelessWidget {

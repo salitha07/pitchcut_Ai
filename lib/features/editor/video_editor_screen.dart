@@ -34,6 +34,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       EditorCommandHistory<EditorStateSnapshot>();
   final EditorProjectStore _projectStore = EditorProjectStore();
   final VideoTrimService _trimService = VideoTrimService();
+  List<SavedExport> _savedExports = const [];
   VideoPlayerController? _controller;
   String? _loadError;
   bool _isLoading = true;
@@ -84,6 +85,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     try {
       final savedProject = await _projectStore.load(widget.videoPath);
       if (savedProject != null) {
+        _savedExports = savedProject.exports;
         final savedClips = <VideoClip>[];
         for (final savedClip in savedProject.clips) {
           if (!await File(savedClip.path).exists()) continue;
@@ -446,9 +448,16 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
           clips: List.unmodifiable(_clips),
           duration: _totalDuration,
           sourceAspectRatio: _previewAspectRatio(_controller?.value),
+          projectId: widget.videoPath,
+          projectClips: List.unmodifiable(_clips),
+          selectedClipIndex: _selectedClipIndex,
+          trimRange: _trimRange,
         ),
       ),
     );
+    final project = await _projectStore.load(widget.videoPath);
+    if (mounted && project != null)
+      setState(() => _savedExports = project.exports);
   }
 
   void _onVideoChanged() {
@@ -1038,6 +1047,43 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                   onReorder: _isCropping || _isBusy ? (_, _) {} : _reorderClips,
                 ),
               ),
+              if (_savedExports.isNotEmpty)
+                SizedBox(
+                  height: 94,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _savedExports.length,
+                    itemBuilder: (context, index) {
+                      final saved = _savedExports[index];
+                      return Card(
+                        child: InkWell(
+                          onTap: () => Navigator.of(context).push<void>(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  SavedVideoPlayerScreen(path: saved.filePath),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Edited video ${index + 1}'),
+                                Text(
+                                  '${saved.quality.label} · ${_formatTime(saved.duration)}',
+                                ),
+                                const Text(
+                                  'Tap to play',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
             ],
           ],
         ),
