@@ -6,6 +6,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.Transformer
@@ -63,6 +64,67 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     } finally {
                         retriever.release()
+                    }
+                    return@setMethodCallHandler
+                }
+                if (call.method == "exportTimeline") {
+                    val outputPath = call.argument<String>("outputPath")
+                    val clips = call.argument<List<Map<String, Any?>>>("clips")
+                    if (outputPath == null || clips.isNullOrEmpty()) {
+                        result.error("invalid_timeline", "There are no clips to export.", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val editedItems = clips.map { clip ->
+                            val inputPath = clip["inputPath"] as? String
+                            val startMs = (clip["startMs"] as? Number)?.toLong()
+                            val endMs = (clip["endMs"] as? Number)?.toLong()
+                            if (inputPath == null || startMs == null || endMs == null ||
+                                startMs < 0 || endMs <= startMs || !File(inputPath).isFile
+                            ) {
+                                throw IllegalArgumentException("A timeline clip is invalid or missing.")
+                            }
+                            val mediaItem = MediaItem.Builder()
+                                .setUri(inputPath)
+                                .setClippingConfiguration(
+                                    MediaItem.ClippingConfiguration.Builder()
+                                        .setStartPositionMs(startMs)
+                                        .setEndPositionMs(endMs)
+                                        .build()
+                                )
+                                .build()
+                            EditedMediaItem.Builder(mediaItem).build()
+                        }
+                        File(outputPath).parentFile?.mkdirs()
+                        val sequence = EditedMediaItemSequence.withAudioAndVideoFrom(editedItems)
+                        val composition = Composition.Builder(sequence).build()
+                        val transformer = Transformer.Builder(this)
+                            .addListener(object : Transformer.Listener {
+                                override fun onCompleted(
+                                    composition: Composition,
+                                    exportResult: ExportResult
+                                ) {
+                                    result.success(outputPath)
+                                }
+
+                                override fun onError(
+                                    composition: Composition,
+                                    exportResult: ExportResult,
+                                    exportException: ExportException
+                                ) {
+                                    File(outputPath).delete()
+                                    result.error(
+                                        "export_failed",
+                                        exportException.message ?: "Video export failed.",
+                                        null
+                                    )
+                                }
+                            })
+                            .build()
+                        transformer.start(composition, outputPath)
+                    } catch (error: Exception) {
+                        File(outputPath).delete()
+                        result.error("export_failed", error.message ?: "Video export failed.", null)
                     }
                     return@setMethodCallHandler
                 }

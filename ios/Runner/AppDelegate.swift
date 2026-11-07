@@ -22,6 +22,10 @@ import AVFoundation
         self?.generateThumbnail(arguments: call.arguments, result: result)
         return
       }
+      if call.method == "exportTimeline" {
+        self?.exportTimeline(arguments: call.arguments, result: result)
+        return
+      }
       guard call.method == "trimVideo" else {
         result(FlutterMethodNotImplemented)
         return
@@ -129,6 +133,130 @@ import AVFoundation
           ))
         default:
           result(FlutterError(code: "trim_failed", message: "Video trimming did not complete.", details: nil))
+        }
+      }
+    }
+  }
+
+  private func exportTimeline(arguments: Any?, result: @escaping FlutterResult) {
+    guard
+      let values = arguments as? [String: Any],
+      let clips = values["clips"] as? [[String: Any]],
+      let outputPath = values["outputPath"] as? String,
+      !clips.isEmpty
+    else {
+      result(FlutterError(code: "invalid_timeline", message: "There are no clips to export.", details: nil))
+      return
+    }
+
+    let composition = AVMutableComposition()
+    guard
+      let videoCompositionTrack = composition.addMutableTrack(
+        withMediaType: .video,
+        preferredTrackID: kCMPersistentTrackID_Invalid
+      ),
+      let audioCompositionTrack = composition.addMutableTrack(
+        withMediaType: .audio,
+        preferredTrackID: kCMPersistentTrackID_Invalid
+      )
+    else {
+      result(FlutterError(code: "export_failed", message: "Could not create the video composition.", details: nil))
+      return
+    }
+
+    let outputURL = URL(fileURLWithPath: outputPath)
+    do {
+      try FileManager.default.createDirectory(
+        at: outputURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      if FileManager.default.fileExists(atPath: outputPath) {
+        try FileManager.default.removeItem(at: outputURL)
+      }
+    } catch {
+      result(FlutterError(code: "export_failed", message: error.localizedDescription, details: nil))
+      return
+    }
+
+    Task {
+      do {
+        var timelineCursor = CMTime.zero
+        for clip in clips {
+          guard
+            let inputPath = clip["inputPath"] as? String,
+            let startMs = clip["startMs"] as? Int,
+            let endMs = clip["endMs"] as? Int,
+            startMs >= 0,
+            endMs > startMs,
+            FileManager.default.fileExists(atPath: inputPath)
+          else {
+            throw NSError(domain: "VideoTimeline", code: 1, userInfo: [
+              NSLocalizedDescriptionKey: "A timeline clip is invalid or missing."
+            ])
+          }
+
+          let asset = AVURLAsset(url: URL(fileURLWithPath: inputPath))
+          let videoTracks = try await asset.loadTracks(withMediaType: .video)
+          guard let sourceVideoTrack = videoTracks.first else {
+            throw NSError(domain: "VideoTimeline", code: 2, userInfo: [
+              NSLocalizedDescriptionKey: "A timeline item has no video track."
+            ])
+          }
+          let sourceRange = CMTimeRange(
+            start: CMTime(value: Int64(startMs), timescale: 1000),
+            duration: CMTime(value: Int64(endMs - startMs), timescale: 1000)
+          )
+          try videoCompositionTrack.insertTimeRange(
+            sourceRange,
+            of: sourceVideoTrack,
+            at: timelineCursor
+          )
+
+          let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+          if let sourceAudioTrack = audioTracks.first {
+            try audioCompositionTrack.insertTimeRange(
+              sourceRange,
+              of: sourceAudioTrack,
+              at: timelineCursor
+            )
+          } else {
+            audioCompositionTrack.insertEmptyTimeRange(
+              CMTimeRange(start: timelineCursor, duration: sourceRange.duration)
+            )
+          }
+          timelineCursor = CMTimeAdd(timelineCursor, sourceRange.duration)
+        }
+
+        guard let exportSession = AVAssetExportSession(
+          asset: composition,
+          presetName: AVAssetExportPresetHighestQuality
+        ), exportSession.supportedFileTypes.contains(.mp4) else {
+          throw NSError(domain: "VideoTimeline", code: 3, userInfo: [
+            NSLocalizedDescriptionKey: "This timeline cannot be exported as MP4."
+          ])
+        }
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .mp4
+        exportSession.exportAsynchronously {
+          DispatchQueue.main.async {
+            switch exportSession.status {
+            case .completed:
+              result(outputPath)
+            case .failed, .cancelled:
+              try? FileManager.default.removeItem(at: outputURL)
+              result(FlutterError(
+                code: "export_failed",
+                message: exportSession.error?.localizedDescription ?? "Video export failed.",
+                details: nil
+              ))
+            default:
+              result(FlutterError(code: "export_failed", message: "Video export did not complete.", details: nil))
+            }
+          }
+        }
+      } catch {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "export_failed", message: error.localizedDescription, details: nil))
         }
       }
     }

@@ -17,6 +17,7 @@ class VideoTimeline extends StatefulWidget {
     required this.onSeek,
     required this.onClipSelected,
     required this.onTrimChanged,
+    required this.onReorder,
   });
 
   final List<VideoClip> clips;
@@ -26,6 +27,7 @@ class VideoTimeline extends StatefulWidget {
   final ValueChanged<Duration> onSeek;
   final ValueChanged<int> onClipSelected;
   final ValueChanged<TrimRange> onTrimChanged;
+  final void Function(int from, int to) onReorder;
 
   @override
   State<VideoTimeline> createState() => _VideoTimelineState();
@@ -235,7 +237,7 @@ class _VideoTimelineState extends State<VideoTimeline> {
         width *
         (widget.trimRange.end.inMilliseconds /
             math.max(1, clip.duration.inMilliseconds));
-    return GestureDetector(
+    final tile = GestureDetector(
       key: ValueKey('timeline-clip-$index'),
       onTap: () => widget.onClipSelected(index),
       child: Container(
@@ -330,6 +332,34 @@ class _VideoTimelineState extends State<VideoTimeline> {
             ],
           ],
         ),
+      ),
+    );
+    return DragTarget<int>(
+      onWillAcceptWithDetails: (details) => details.data != index,
+      onAcceptWithDetails: (details) => widget.onReorder(details.data, index),
+      builder: (context, _, _) => LongPressDraggable<int>(
+        data: index,
+        axis: Axis.horizontal,
+        feedback: Material(
+          elevation: 8,
+          borderRadius: BorderRadius.circular(6),
+          child: SizedBox(
+            width: width,
+            height: 88,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
+                  clip.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ),
+        ),
+        childWhenDragging: Opacity(opacity: 0.3, child: tile),
+        child: tile,
       ),
     );
   }

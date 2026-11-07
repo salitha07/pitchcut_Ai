@@ -1,10 +1,14 @@
 import 'dart:io';
+import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pitchcut_ai/features/editor/models/trim_range.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_command_history.dart';
+import 'package:pitchcut_ai/features/editor/services/editor_project_store.dart';
+import 'package:pitchcut_ai/features/editor/services/timeline_operations.dart';
 import 'package:pitchcut_ai/features/editor/services/video_trim_service.dart';
 import 'package:pitchcut_ai/features/editor/widgets/video_timeline.dart';
 import 'package:video_player/video_player.dart';
@@ -24,6 +28,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   final List<VideoClip> _clips = [];
   final EditorCommandHistory<List<VideoClip>> _history =
       EditorCommandHistory<List<VideoClip>>();
+  final EditorProjectStore _projectStore = EditorProjectStore();
   final VideoTrimService _trimService = VideoTrimService();
   VideoPlayerController? _controller;
   String? _loadError;
@@ -31,9 +36,11 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   bool _isTransitioning = false;
   bool _isPlaybackActive = false;
   bool _isTrimming = false;
+  bool _isExporting = false;
   int _selectedClipIndex = 0;
   int _controllerGeneration = 0;
   Duration _timelinePosition = Duration.zero;
+  Future<void> _persistenceQueue = Future<void>.value();
   TrimRange _trimRange = const TrimRange(
     start: Duration.zero,
     end: Duration.zero,
@@ -55,6 +62,60 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     });
     VideoPlayerController? controller;
     try {
+      final savedProject = await _projectStore.load(widget.videoPath);
+      if (savedProject != null) {
+        final savedClips = <VideoClip>[];
+        for (final savedClip in savedProject.clips) {
+          if (!await File(savedClip.path).exists()) continue;
+          Uint8List? thumbnail;
+          try {
+            thumbnail = await _trimService.generateThumbnail(
+              savedClip.path,
+              time:
+                  savedClip.sourceStart +
+                  Duration(
+                    milliseconds: savedClip.duration.inMilliseconds ~/ 3,
+                  ),
+            );
+          } catch (_) {
+            // A missing thumbnail does not invalidate a saved media clip.
+          }
+          savedClips.add(savedClip.copyWith(thumbnail: thumbnail));
+        }
+        if (savedClips.isNotEmpty || savedProject.clips.isEmpty) {
+          _clips.addAll(savedClips);
+          _selectedClipIndex = savedClips.isEmpty
+              ? 0
+              : savedProject.selectedClipIndex.clamp(0, savedClips.length - 1);
+          final savedRange = savedProject.trimRange;
+          _trimRange =
+              savedClips.isNotEmpty &&
+                  savedRange.isValidFor(savedClips[_selectedClipIndex].duration)
+              ? savedRange
+              : TrimRange(
+                  start: Duration.zero,
+                  end: savedClips.isEmpty
+                      ? Duration.zero
+                      : savedClips[_selectedClipIndex].duration,
+                );
+          if (savedClips.isEmpty) {
+            setState(() => _isLoading = false);
+          } else {
+            final requestedRange = _trimRange;
+            await _activateClip(
+              _selectedClipIndex,
+              position: requestedRange.start,
+            );
+            if (requestedRange.isValidFor(
+              _clips[_selectedClipIndex].duration,
+            )) {
+              setState(() => _trimRange = requestedRange);
+            }
+          }
+          await _persistProject();
+          return;
+        }
+      }
       final probed = await _probeClip(widget.videoPath, widget.videoName);
       controller = probed.controller;
       if (!mounted) {
@@ -68,6 +129,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       _controller = controller;
       controller.addListener(_onVideoChanged);
       setState(() => _isLoading = false);
+      await _persistProject();
     } catch (error) {
       await controller?.dispose();
       if (!mounted) return;
@@ -140,6 +202,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
         _loadError = null;
       });
       _history.record(before: before, after: after);
+      await _persistProject();
     } catch (error) {
       if (mounted) _showMessage('Could not add this video: $error');
     }
@@ -148,6 +211,120 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _persistProject() async {
+    final clips = List<VideoClip>.unmodifiable(_clips);
+    final selectedClipIndex = _selectedClipIndex;
+    final trimRange = _trimRange;
+    final write = _persistenceQueue.then(
+      (_) => _projectStore.save(
+        projectId: widget.videoPath,
+        clips: clips,
+        selectedClipIndex: selectedClipIndex,
+        trimRange: trimRange,
+      ),
+    );
+    _persistenceQueue = write.catchError((Object error) {
+      if (mounted) _showMessage('Could not save editor state: $error');
+    });
+    await _persistenceQueue;
+  }
+
+  Future<void> _splitSelectedClip() async {
+    if (_clips.isEmpty) return;
+    final index = _selectedClipIndex;
+    final clip = _clips[index];
+    final clipPosition = _timelinePosition - _clipStart(index);
+    if (!TimelineOperations.canSplit(clip, clipPosition)) {
+      _showMessage(
+        'Move the playhead so both new clips are at least 0.5 seconds.',
+      );
+      return;
+    }
+    final before = List<VideoClip>.unmodifiable(_clips);
+    final after = TimelineOperations.split(_clips, index, clipPosition);
+    _isPlaybackActive = false;
+    await _controller?.pause();
+    _history.record(before: before, after: List.unmodifiable(after));
+    _clips
+      ..clear()
+      ..addAll(after);
+    _selectedClipIndex = index + 1;
+    _trimRange = TrimRange(
+      start: Duration.zero,
+      end: _clips[_selectedClipIndex].duration,
+    );
+    setState(() => _timelinePosition = _clipStart(_selectedClipIndex));
+    await _persistProject();
+  }
+
+  Future<void> _deleteSelectedClip() async {
+    if (_clips.isEmpty) return;
+    final before = List<VideoClip>.unmodifiable(_clips);
+    final after = TimelineOperations.delete(_clips, _selectedClipIndex);
+    _history.record(before: before, after: List.unmodifiable(after));
+    _isPlaybackActive = false;
+    final previous = _controller;
+    _controller = null;
+    previous?.removeListener(_onVideoChanged);
+    await previous?.pause();
+    await previous?.dispose();
+    _clips
+      ..clear()
+      ..addAll(after);
+
+    if (_clips.isEmpty) {
+      _selectedClipIndex = 0;
+      _trimRange = const TrimRange(start: Duration.zero, end: Duration.zero);
+      setState(() {
+        _timelinePosition = Duration.zero;
+        _isLoading = false;
+        _loadError = null;
+      });
+    } else {
+      _selectedClipIndex = _selectedClipIndex.clamp(0, _clips.length - 1);
+      await _activateClip(_selectedClipIndex);
+    }
+    await _persistProject();
+  }
+
+  Future<void> _reorderClips(int from, int to) async {
+    if (from < 0 || from >= _clips.length || to < 0 || to >= _clips.length) {
+      return;
+    }
+    if (from == to) return;
+    final selectedClip = _clips[_selectedClipIndex];
+    final controllerPosition =
+        _controller?.value.position ?? selectedClip.sourceStart;
+    final localPosition = controllerPosition - selectedClip.sourceStart;
+    final before = List<VideoClip>.unmodifiable(_clips);
+    final after = TimelineOperations.reorder(_clips, from, to);
+    _history.record(before: before, after: List.unmodifiable(after));
+    _clips
+      ..clear()
+      ..addAll(after);
+    _selectedClipIndex = _clips.indexOf(selectedClip);
+    setState(
+      () => _timelinePosition = _clipStart(_selectedClipIndex) + localPosition,
+    );
+    await _persistProject();
+  }
+
+  Future<void> _exportTimeline() async {
+    if (_clips.isEmpty || _isExporting) return;
+    setState(() => _isExporting = true);
+    try {
+      final path = await _trimService.exportTimeline(List.unmodifiable(_clips));
+      if (!await File(path).exists()) {
+        throw const FileSystemException('The exported video was not created.');
+      }
+      if (mounted) _showMessage('Exported video: $path');
+    } catch (error) {
+      if (mounted) _showMessage('Could not export the timeline: $error');
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
   }
 
   void _onVideoChanged() {
@@ -165,7 +342,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     }
 
     final start = _clipStart(_selectedClipIndex);
-    final localPosition = controller.value.position;
+    final localPosition =
+        controller.value.position - _clips[_selectedClipIndex].sourceStart;
     final clip = _clips[_selectedClipIndex];
     if (localPosition < _trimRange.start && _isPlaybackActive) {
       controller.seekTo(_trimRange.start);
@@ -209,6 +387,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     bool autoPlay = false,
   }) async {
     if (index < 0 || index >= _clips.length) return;
+    final clip = _clips[index];
     final generation = ++_controllerGeneration;
     final previous = _controller;
     _controller = null;
@@ -232,9 +411,14 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
         await controller.dispose();
         return;
       }
-      final maxPosition = controller.value.duration;
+      final maxPosition = clip.duration;
       final safePosition = position > maxPosition ? maxPosition : position;
-      if (safePosition > Duration.zero) await controller.seekTo(safePosition);
+      final sourcePosition = clip.sourceStart + safePosition;
+      if (sourcePosition > controller.value.duration) {
+        throw StateError('This clip range exceeds its source video duration.');
+      }
+      if (sourcePosition > Duration.zero)
+        await controller.seekTo(sourcePosition);
       _controller = controller;
       controller.addListener(_onVideoChanged);
       setState(() => _isLoading = false);
@@ -292,7 +476,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       setState(
         () => _timelinePosition = _clipStart(targetIndex) + boundedPosition,
       );
-      await _controller!.seekTo(boundedPosition);
+      await _controller!.seekTo(
+        _clips[targetIndex].sourceStart + boundedPosition,
+      );
       return;
     }
     final keepPlaying = _isPlaybackActive;
@@ -303,24 +489,29 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     );
   }
 
-  Future<void> _selectClip(int index) => _seekToTimeline(_clipStart(index));
+  Future<void> _selectClip(int index) async {
+    await _seekToTimeline(_clipStart(index));
+    await _persistProject();
+  }
 
   void _onTrimRangeChanged(TrimRange range) {
     final clip = _clips[_selectedClipIndex];
     if (!range.isValidFor(clip.duration)) return;
     setState(() => _trimRange = range);
     final position = _controller?.value.position;
-    if (position != null && position < range.start) {
-      _controller?.seekTo(range.start);
+    final localPosition = position == null ? null : position - clip.sourceStart;
+    if (localPosition != null && localPosition < range.start) {
+      _controller?.seekTo(clip.sourceStart + range.start);
       setState(
         () => _timelinePosition = _clipStart(_selectedClipIndex) + range.start,
       );
-    } else if (position != null && position > range.end) {
-      _controller?.seekTo(range.end);
+    } else if (localPosition != null && localPosition > range.end) {
+      _controller?.seekTo(clip.sourceStart + range.end);
       setState(
         () => _timelinePosition = _clipStart(_selectedClipIndex) + range.end,
       );
     }
+    unawaited(_persistProject());
   }
 
   Future<void> _trimSelectedClip() async {
@@ -341,8 +532,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     try {
       final outputPath = await _trimService.trim(
         inputPath: clip.path,
-        start: _trimRange.start,
-        end: _trimRange.end,
+        start: clip.sourceStart + _trimRange.start,
+        end: clip.sourceStart + _trimRange.end,
       );
       if (!await File(outputPath).exists()) {
         throw const FileSystemException('The trimmed video was not created.');
@@ -361,6 +552,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
         ..addAll(after);
       setState(() => _timelinePosition = _clipStart(index));
       await _activateClip(index);
+      await _persistProject();
       if (mounted) _showMessage('Trim applied to ${clip.name}.');
     } catch (error) {
       if (mounted) _showMessage('Could not trim this video: $error');
@@ -373,6 +565,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     final snapshot = undo ? _history.undo() : _history.redo();
     if (snapshot == null) return;
     _isPlaybackActive = false;
+    final preferredClip = _clips.isEmpty ? null : _clips[_selectedClipIndex];
     if (snapshot.isEmpty) {
       final previous = _controller;
       _controller = null;
@@ -388,13 +581,20 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
           );
         });
       }
+      await _persistProject();
       return;
     }
-    final index = _selectedClipIndex.clamp(0, snapshot.length - 1);
+    final restoredIndex = preferredClip == null
+        ? -1
+        : snapshot.indexOf(preferredClip);
+    final index = restoredIndex >= 0
+        ? restoredIndex
+        : _selectedClipIndex.clamp(0, snapshot.length - 1);
     _clips
       ..clear()
       ..addAll(snapshot);
     await _activateClip(index);
+    await _persistProject();
   }
 
   Future<void> _togglePlayback() async {
@@ -406,9 +606,13 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     } else {
       if (_timelinePosition >= _totalDuration) {
         await _seekToTimeline(Duration.zero);
-      } else if (controller.value.position < _trimRange.start ||
-          controller.value.position >= _trimRange.end) {
-        await controller.seekTo(_trimRange.start);
+      } else if (controller.value.position <
+              _clips[_selectedClipIndex].sourceStart + _trimRange.start ||
+          controller.value.position >=
+              _clips[_selectedClipIndex].sourceStart + _trimRange.end) {
+        await controller.seekTo(
+          _clips[_selectedClipIndex].sourceStart + _trimRange.start,
+        );
         setState(
           () => _timelinePosition =
               _clipStart(_selectedClipIndex) + _trimRange.start,
@@ -473,6 +677,20 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
             tooltip: 'Add video clip',
             onPressed: _addClip,
             icon: const Icon(Icons.add_to_photos_outlined),
+          ),
+          IconButton(
+            key: const ValueKey('export-video-timeline'),
+            tooltip: 'Export timeline',
+            onPressed: _clips.isNotEmpty && !_isExporting
+                ? _exportTimeline
+                : null,
+            icon: _isExporting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.file_upload_outlined),
           ),
         ],
       ),
@@ -553,24 +771,55 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    FilledButton.icon(
-                      key: const ValueKey('apply-video-trim'),
-                      onPressed:
-                          !_isTrimming &&
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        OutlinedButton.icon(
+                          key: const ValueKey('split-selected-clip'),
+                          onPressed:
                               _clips.isNotEmpty &&
-                              _trimRange.isValidFor(
-                                _clips[_selectedClipIndex].duration,
-                              )
-                          ? _trimSelectedClip
-                          : null,
-                      icon: _isTrimming
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.content_cut),
-                      label: Text(_isTrimming ? 'Trimming…' : 'Trim'),
+                                  TimelineOperations.canSplit(
+                                    _clips[_selectedClipIndex],
+                                    _timelinePosition -
+                                        _clipStart(_selectedClipIndex),
+                                  )
+                              ? _splitSelectedClip
+                              : null,
+                          icon: const Icon(Icons.call_split),
+                          label: const Text('Split'),
+                        ),
+                        OutlinedButton.icon(
+                          key: const ValueKey('delete-selected-clip'),
+                          onPressed: _clips.isNotEmpty
+                              ? _deleteSelectedClip
+                              : null,
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('Delete'),
+                        ),
+                        FilledButton.icon(
+                          key: const ValueKey('apply-video-trim'),
+                          onPressed:
+                              !_isTrimming &&
+                                  _clips.isNotEmpty &&
+                                  _trimRange.isValidFor(
+                                    _clips[_selectedClipIndex].duration,
+                                  )
+                              ? _trimSelectedClip
+                              : null,
+                          icon: _isTrimming
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.content_cut),
+                          label: Text(_isTrimming ? 'Trimming…' : 'Trim'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -598,6 +847,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                   onSeek: _seekToTimeline,
                   onClipSelected: _selectClip,
                   onTrimChanged: _onTrimRangeChanged,
+                  onReorder: _reorderClips,
                 ),
               ),
             ],
