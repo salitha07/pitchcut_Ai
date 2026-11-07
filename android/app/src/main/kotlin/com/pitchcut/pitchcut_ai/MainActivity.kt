@@ -4,6 +4,10 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.Effects
+import androidx.media3.common.Effect
+import androidx.media3.effect.Crop
+import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
@@ -93,7 +97,36 @@ class MainActivity : FlutterActivity() {
                                         .build()
                                 )
                                 .build()
-                            EditedMediaItem.Builder(mediaItem).build()
+                            val videoEffects = mutableListOf<Effect>()
+                            val rotation = (clip["rotationDegrees"] as? Number)?.toFloat() ?: 0f
+                            if (rotation != 0f) {
+                                videoEffects.add(
+                                    ScaleAndRotateTransformation.Builder()
+                                        .setRotationDegrees(rotation)
+                                        .build()
+                                )
+                            }
+                            val crop = clip["crop"] as? Map<*, *>
+                            if (crop != null) {
+                                val left = (crop["left"] as? Number)?.toFloat() ?: 0f
+                                val top = (crop["top"] as? Number)?.toFloat() ?: 0f
+                                val right = (crop["right"] as? Number)?.toFloat() ?: 1f
+                                val bottom = (crop["bottom"] as? Number)?.toFloat() ?: 1f
+                                if (left < 0f || top < 0f || right > 1f || bottom > 1f ||
+                                    right - left < 0.05f || bottom - top < 0.05f
+                                ) throw IllegalArgumentException("A timeline crop rectangle is invalid.")
+                                videoEffects.add(
+                                    Crop(
+                                        2f * left - 1f,
+                                        2f * right - 1f,
+                                        1f - 2f * bottom,
+                                        1f - 2f * top
+                                    )
+                                )
+                            }
+                            EditedMediaItem.Builder(mediaItem)
+                                .setEffects(Effects(emptyList(), videoEffects))
+                                .build()
                         }
                         File(outputPath).parentFile?.mkdirs()
                         val sequence = EditedMediaItemSequence.withAudioAndVideoFrom(editedItems)

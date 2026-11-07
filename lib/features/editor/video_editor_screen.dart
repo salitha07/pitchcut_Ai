@@ -5,12 +5,14 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pitchcut_ai/features/editor/models/trim_range.dart';
+import 'package:pitchcut_ai/features/editor/models/crop_rect.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_command_history.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_project_store.dart';
 import 'package:pitchcut_ai/features/editor/services/timeline_operations.dart';
 import 'package:pitchcut_ai/features/editor/services/video_trim_service.dart';
 import 'package:pitchcut_ai/features/editor/widgets/video_timeline.dart';
+import 'package:pitchcut_ai/features/editor/widgets/crop_frame_editor.dart';
 import 'package:video_player/video_player.dart';
 
 /// A local video editor preview with a multi-clip playback timeline.
@@ -37,6 +39,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   bool _isPlaybackActive = false;
   bool _isTrimming = false;
   bool _isExporting = false;
+  bool _isCropping = false;
+  CropRect _draftCrop = CropRect.full;
+  int? _mergeFirstIndex;
   int _selectedClipIndex = 0;
   int _controllerGeneration = 0;
   Duration _timelinePosition = Duration.zero;
@@ -311,6 +316,111 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     await _persistProject();
   }
 
+  Future<void> _mergeAdjacentClips() async {
+    if (_mergeFirstIndex == null) {
+      setState(() => _mergeFirstIndex = _selectedClipIndex);
+      _showMessage('Now select the adjacent clip to merge.');
+      return;
+    }
+    final first = _mergeFirstIndex!;
+    final second = _selectedClipIndex;
+    setState(() => _mergeFirstIndex = null);
+    if ((first - second).abs() != 1) {
+      _showMessage('Choose a clip directly next to the selected clip.');
+      return;
+    }
+    final firstIndex = first < second ? first : second;
+    final firstClip = _clips[firstIndex];
+    final secondClip = _clips[firstIndex + 1];
+    if (!TimelineOperations.canMerge(firstClip, secondClip)) {
+      _showMessage(
+        'Merge requires both clips to use the same rotation and crop.',
+      );
+      return;
+    }
+    final before = List<VideoClip>.unmodifiable(_clips);
+    List<VideoClip> after;
+    if (TimelineOperations.canMergeWithoutRendering(firstClip, secondClip)) {
+      after = TimelineOperations.merge(_clips, firstIndex);
+    } else {
+      setState(() => _isExporting = true);
+      _isPlaybackActive = false;
+      await _controller?.pause();
+      try {
+        final outputPath = await _trimService.exportTimeline([
+          firstClip,
+          secondClip,
+        ]);
+        if (!await File(outputPath).exists()) {
+          throw const FileSystemException('The merged video was not created.');
+        }
+        final probed = await _probeClip(
+          outputPath,
+          '${firstClip.name} + ${secondClip.name}',
+        );
+        await probed.controller.dispose();
+        after = TimelineOperations.merge(
+          _clips,
+          firstIndex,
+          renderedClip: probed.clip,
+        );
+      } catch (error) {
+        if (mounted) _showMessage('Could not merge these clips: $error');
+        return;
+      } finally {
+        if (mounted) setState(() => _isExporting = false);
+      }
+    }
+    _history.record(before: before, after: List.unmodifiable(after));
+    _clips
+      ..clear()
+      ..addAll(after);
+    _selectedClipIndex = firstIndex;
+    await _activateClip(_selectedClipIndex);
+    await _persistProject();
+  }
+
+  Future<void> _rotateSelectedClip() async {
+    if (_clips.isEmpty) return;
+    final before = List<VideoClip>.unmodifiable(_clips);
+    final after = List<VideoClip>.of(_clips);
+    after[_selectedClipIndex] = TimelineOperations.rotate(
+      after[_selectedClipIndex],
+    );
+    _history.record(before: before, after: List.unmodifiable(after));
+    _clips
+      ..clear()
+      ..addAll(after);
+    setState(() {});
+    await _persistProject();
+  }
+
+  Future<void> _beginCrop() async {
+    if (_clips.isEmpty) return;
+    _isPlaybackActive = false;
+    await _controller?.pause();
+    setState(() {
+      _draftCrop = _clips[_selectedClipIndex].crop ?? CropRect.full;
+      _isCropping = true;
+    });
+  }
+
+  Future<void> _applyCrop() async {
+    if (_clips.isEmpty || !_draftCrop.isValid) return;
+    final before = List<VideoClip>.unmodifiable(_clips);
+    final after = List<VideoClip>.of(_clips);
+    after[_selectedClipIndex] = TimelineOperations.crop(
+      after[_selectedClipIndex],
+      _draftCrop,
+    );
+    _history.record(before: before, after: List.unmodifiable(after));
+    _clips
+      ..clear()
+      ..addAll(after);
+    setState(() => _isCropping = false);
+    await _persistProject();
+  }
+
   Future<void> _exportTimeline() async {
     if (_clips.isEmpty || _isExporting) return;
     setState(() => _isExporting = true);
@@ -543,7 +653,10 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
 
       final before = List<VideoClip>.unmodifiable(_clips);
       final afterClips = List<VideoClip>.of(_clips);
-      afterClips[_selectedClipIndex] = probed.clip;
+      afterClips[_selectedClipIndex] = probed.clip.copyWith(
+        rotationDegrees: clip.rotationDegrees,
+        crop: clip.crop,
+      );
       final after = List<VideoClip>.unmodifiable(afterClips);
       _history.record(before: before, after: after);
       final index = _selectedClipIndex;
@@ -700,9 +813,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
             Expanded(
               child: Center(
                 child: AspectRatio(
-                  aspectRatio: ready && value!.aspectRatio > 0
-                      ? value.aspectRatio
-                      : 16 / 9,
+                  aspectRatio: _previewAspectRatio(value),
                   child: ColoredBox(
                     color: Colors.black,
                     child: _buildPreview(controller, ready),
@@ -747,7 +858,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                             value: positionSeconds
                                 .clamp(0, totalSeconds)
                                 .toDouble(),
-                            onChanged: _clips.isNotEmpty
+                            onChanged: _clips.isNotEmpty && !_isCropping
                                 ? (seconds) => _seekToTimeline(
                                     Duration(
                                       milliseconds: (seconds * 1000).round(),
@@ -762,7 +873,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                     IconButton.filledTonal(
                       key: const ValueKey('video-play-pause'),
                       tooltip: value?.isPlaying ?? false ? 'Pause' : 'Play',
-                      onPressed: ready ? _togglePlayback : null,
+                      onPressed: ready && !_isCropping ? _togglePlayback : null,
                       iconSize: 32,
                       icon: Icon(
                         value?.isPlaying ?? false
@@ -777,9 +888,52 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                       runSpacing: 4,
                       children: [
                         OutlinedButton.icon(
+                          key: const ValueKey('merge-selected-clips'),
+                          onPressed: _clips.length >= 2 && !_isCropping
+                              ? _mergeAdjacentClips
+                              : null,
+                          icon: const Icon(Icons.merge_type),
+                          label: Text(
+                            _mergeFirstIndex == null
+                                ? 'Select merge pair'
+                                : 'Merge with selected',
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          key: const ValueKey('rotate-selected-clip'),
+                          onPressed: _clips.isNotEmpty && !_isCropping
+                              ? _rotateSelectedClip
+                              : null,
+                          icon: const Icon(Icons.rotate_right),
+                          label: Text(
+                            'Rotate ${_clips.isEmpty ? 0 : (_clips[_selectedClipIndex].rotationDegrees + 90) % 360}°',
+                          ),
+                        ),
+                        if (!_isCropping)
+                          OutlinedButton.icon(
+                            key: const ValueKey('crop-selected-clip'),
+                            onPressed: _clips.isNotEmpty ? _beginCrop : null,
+                            icon: const Icon(Icons.crop),
+                            label: const Text('Crop'),
+                          )
+                        else ...[
+                          FilledButton(
+                            key: const ValueKey('apply-video-crop'),
+                            onPressed: _applyCrop,
+                            child: const Text('Apply crop'),
+                          ),
+                          TextButton(
+                            key: const ValueKey('cancel-video-crop'),
+                            onPressed: () =>
+                                setState(() => _isCropping = false),
+                            child: const Text('Cancel'),
+                          ),
+                        ],
+                        OutlinedButton.icon(
                           key: const ValueKey('split-selected-clip'),
                           onPressed:
-                              _clips.isNotEmpty &&
+                              !_isCropping &&
+                                  _clips.isNotEmpty &&
                                   TimelineOperations.canSplit(
                                     _clips[_selectedClipIndex],
                                     _timelinePosition -
@@ -792,7 +946,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                         ),
                         OutlinedButton.icon(
                           key: const ValueKey('delete-selected-clip'),
-                          onPressed: _clips.isNotEmpty
+                          onPressed: _clips.isNotEmpty && !_isCropping
                               ? _deleteSelectedClip
                               : null,
                           icon: const Icon(Icons.delete_outline),
@@ -801,7 +955,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                         FilledButton.icon(
                           key: const ValueKey('apply-video-trim'),
                           onPressed:
-                              !_isTrimming &&
+                              !_isCropping &&
+                                  !_isTrimming &&
                                   _clips.isNotEmpty &&
                                   _trimRange.isValidFor(
                                     _clips[_selectedClipIndex].duration,
@@ -844,10 +999,10 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                   selectedClipIndex: _selectedClipIndex,
                   position: _timelinePosition,
                   trimRange: _trimRange,
-                  onSeek: _seekToTimeline,
-                  onClipSelected: _selectClip,
-                  onTrimChanged: _onTrimRangeChanged,
-                  onReorder: _reorderClips,
+                  onSeek: _isCropping ? (_) {} : _seekToTimeline,
+                  onClipSelected: _isCropping ? (_) {} : _selectClip,
+                  onTrimChanged: _isCropping ? (_) {} : _onTrimRangeChanged,
+                  onReorder: _isCropping ? (_, _) {} : _reorderClips,
                 ),
               ),
             ],
@@ -868,8 +1023,55 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
         ),
       );
     }
-    if (ready && controller != null) return VideoPlayer(controller);
+    if (ready && controller != null) {
+      final clip = _clips[_selectedClipIndex];
+      final crop = _isCropping ? CropRect.full : (clip.crop ?? CropRect.full);
+      final quarterTurns = (clip.rotationDegrees ~/ 90) % 4;
+      final media = RotatedBox(
+        quarterTurns: quarterTurns,
+        child: VideoPlayer(controller),
+      );
+      return LayoutBuilder(
+        builder: (context, box) {
+          final cropped = ClipRect(
+            child: Align(
+              alignment: Alignment(
+                crop.left + crop.right - 1,
+                crop.top + crop.bottom - 1,
+              ),
+              child: SizedBox(
+                width: box.maxWidth / crop.width,
+                height: box.maxHeight / crop.height,
+                child: media,
+              ),
+            ),
+          );
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              cropped,
+              if (_isCropping)
+                CropFrameEditor(
+                  crop: _draftCrop,
+                  onChanged: (crop) => setState(() => _draftCrop = crop),
+                ),
+            ],
+          );
+        },
+      );
+    }
     return const SizedBox.shrink();
+  }
+
+  double _previewAspectRatio(VideoPlayerValue? value) {
+    if (_clips.isEmpty || value == null || value.aspectRatio <= 0)
+      return 16 / 9;
+    final clip = _clips[_selectedClipIndex];
+    final rotated = clip.rotationDegrees % 180 == 0
+        ? value.aspectRatio
+        : 1 / value.aspectRatio;
+    final crop = _isCropping ? null : clip.crop;
+    return crop == null ? rotated : (rotated * crop.width / crop.height);
   }
 }
 

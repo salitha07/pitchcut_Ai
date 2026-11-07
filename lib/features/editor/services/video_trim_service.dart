@@ -54,6 +54,8 @@ class VideoTrimService {
               'inputPath': clip.path,
               'startMs': clip.sourceStart.inMilliseconds,
               'endMs': clip.sourceEnd.inMilliseconds,
+              'rotationDegrees': clip.rotationDegrees,
+              if (clip.crop != null) 'crop': clip.crop!.toJson(),
             },
           )
           .toList(growable: false),

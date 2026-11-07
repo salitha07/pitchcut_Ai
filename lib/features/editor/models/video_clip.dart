@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'crop_rect.dart';
+
 class VideoClip {
   const VideoClip({
     required this.path,
@@ -8,6 +10,8 @@ class VideoClip {
     this.sourceStart = Duration.zero,
     Duration? sourceDuration,
     this.thumbnail,
+    this.rotationDegrees = 0,
+    this.crop,
   }) : sourceDuration = sourceDuration ?? duration;
 
   final String path;
@@ -16,6 +20,8 @@ class VideoClip {
   final Duration sourceStart;
   final Duration sourceDuration;
   final Uint8List? thumbnail;
+  final int rotationDegrees;
+  final CropRect? crop;
 
   Duration get sourceEnd => sourceStart + duration;
 
@@ -26,6 +32,8 @@ class VideoClip {
     Duration? sourceStart,
     Duration? sourceDuration,
     Uint8List? thumbnail,
+    int? rotationDegrees,
+    CropRect? crop,
   }) => VideoClip(
     path: path ?? this.path,
     name: name ?? this.name,
@@ -33,6 +41,8 @@ class VideoClip {
     sourceStart: sourceStart ?? this.sourceStart,
     sourceDuration: sourceDuration ?? this.sourceDuration,
     thumbnail: thumbnail ?? this.thumbnail,
+    rotationDegrees: rotationDegrees ?? this.rotationDegrees,
+    crop: crop ?? this.crop,
   );
 
   Map<String, Object> toJson() => {
@@ -41,6 +51,8 @@ class VideoClip {
     'durationMs': duration.inMilliseconds,
     'sourceStartMs': sourceStart.inMilliseconds,
     'sourceDurationMs': sourceDuration.inMilliseconds,
+    'rotationDegrees': rotationDegrees,
+    if (crop != null) 'crop': crop!.toJson(),
   };
 
   factory VideoClip.fromJson(Map<String, Object?> json) => VideoClip(
@@ -52,5 +64,9 @@ class VideoClip {
       milliseconds:
           json['sourceDurationMs'] as int? ?? json['durationMs']! as int,
     ),
+    rotationDegrees: json['rotationDegrees'] as int? ?? 0,
+    crop: json['crop'] is Map<String, dynamic>
+        ? CropRect.fromJson(json['crop']! as Map<String, dynamic>)
+        : null,
   );
 }

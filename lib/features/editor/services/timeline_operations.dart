@@ -1,5 +1,6 @@
 import '../models/video_clip.dart';
 import '../models/trim_range.dart';
+import '../models/crop_rect.dart';
 
 class TimelineOperations {
   static const minimumSegmentDuration = TrimRange.minimumDuration;
@@ -53,5 +54,48 @@ class TimelineOperations {
     final clip = result.removeAt(from);
     result.insert(to, clip);
     return result;
+  }
+
+  static bool canMerge(VideoClip first, VideoClip second) =>
+      first.rotationDegrees == second.rotationDegrees &&
+      first.crop == second.crop;
+
+  static bool canMergeWithoutRendering(VideoClip first, VideoClip second) =>
+      canMerge(first, second) &&
+      first.path == second.path &&
+      first.sourceEnd == second.sourceStart;
+
+  static List<VideoClip> merge(
+    List<VideoClip> clips,
+    int firstIndex, {
+    VideoClip? renderedClip,
+  }) {
+    if (firstIndex < 0 || firstIndex + 1 >= clips.length) {
+      throw RangeError.index(firstIndex, clips, 'firstIndex');
+    }
+    final first = clips[firstIndex];
+    final second = clips[firstIndex + 1];
+    if (!canMerge(first, second)) {
+      throw ArgumentError('Only clips with matching edits can merge.');
+    }
+    final merged = canMergeWithoutRendering(first, second)
+        ? first.copyWith(
+            name: '${first.name} + ${second.name}',
+            duration: first.duration + second.duration,
+            sourceDuration: first.duration + second.duration,
+          )
+        : renderedClip?.copyWith(name: '${first.name} + ${second.name}') ??
+              (throw ArgumentError(
+                'A rendered clip is required to merge separate source ranges.',
+              ));
+    return [...clips.take(firstIndex), merged, ...clips.skip(firstIndex + 2)];
+  }
+
+  static VideoClip rotate(VideoClip clip) =>
+      clip.copyWith(rotationDegrees: (clip.rotationDegrees + 90) % 360);
+
+  static VideoClip crop(VideoClip clip, CropRect crop) {
+    if (!crop.isValid) throw ArgumentError('Crop rectangle is invalid.');
+    return clip.copyWith(crop: crop);
   }
 }

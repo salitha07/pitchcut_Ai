@@ -181,6 +181,8 @@ import AVFoundation
     Task {
       do {
         var timelineCursor = CMTime.zero
+        var videoInstructions: [AVMutableVideoCompositionInstruction] = []
+        var outputSize = CGSize.zero
         for clip in clips {
           guard
             let inputPath = clip["inputPath"] as? String,
@@ -206,6 +208,52 @@ import AVFoundation
             start: CMTime(value: Int64(startMs), timescale: 1000),
             duration: CMTime(value: Int64(endMs - startMs), timescale: 1000)
           )
+          let rotationDegrees = clip["rotationDegrees"] as? Int ?? 0
+          guard [0, 90, 180, 270].contains(rotationDegrees) else {
+            throw NSError(domain: "VideoTimeline", code: 4, userInfo: [
+              NSLocalizedDescriptionKey: "A timeline rotation value is invalid."
+            ])
+          }
+          let crop = clip["crop"] as? [String: Any]
+          let left = CGFloat((crop?["left"] as? NSNumber)?.doubleValue ?? 0)
+          let top = CGFloat((crop?["top"] as? NSNumber)?.doubleValue ?? 0)
+          let right = CGFloat((crop?["right"] as? NSNumber)?.doubleValue ?? 1)
+          let bottom = CGFloat((crop?["bottom"] as? NSNumber)?.doubleValue ?? 1)
+          guard left >= 0, top >= 0, right <= 1, bottom <= 1,
+                right - left >= 0.05, bottom - top >= 0.05 else {
+            throw NSError(domain: "VideoTimeline", code: 5, userInfo: [
+              NSLocalizedDescriptionKey: "A timeline crop rectangle is invalid."
+            ])
+          }
+          let naturalSize = try await sourceVideoTrack.load(.naturalSize)
+          let preferredTransform = try await sourceVideoTrack.load(.preferredTransform)
+          let sourceBounds = CGRect(origin: .zero, size: naturalSize)
+          let orientedBounds = sourceBounds.applying(preferredTransform).standardized
+          let rotation = CGAffineTransform(rotationAngle: CGFloat(rotationDegrees) * .pi / 180)
+          var finalTransform = preferredTransform.concatenating(rotation)
+          let transformedBounds = sourceBounds.applying(finalTransform).standardized
+          finalTransform = finalTransform.concatenating(
+            CGAffineTransform(translationX: -transformedBounds.minX, y: -transformedBounds.minY)
+          )
+          let rotatedSize = rotationDegrees % 180 == 0
+            ? CGSize(width: orientedBounds.width, height: orientedBounds.height)
+            : CGSize(width: orientedBounds.height, height: orientedBounds.width)
+          if outputSize == .zero {
+            outputSize = CGSize(width: max(2, rotatedSize.width * (right - left)),
+                                height: max(2, rotatedSize.height * (bottom - top)))
+          }
+          let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoCompositionTrack)
+          layerInstruction.setTransform(finalTransform, at: timelineCursor)
+          layerInstruction.setCropRectangle(
+            CGRect(x: left * rotatedSize.width, y: top * rotatedSize.height,
+                   width: (right - left) * rotatedSize.width,
+                   height: (bottom - top) * rotatedSize.height),
+            at: timelineCursor
+          )
+          let videoInstruction = AVMutableVideoCompositionInstruction()
+          videoInstruction.timeRange = CMTimeRange(start: timelineCursor, duration: sourceRange.duration)
+          videoInstruction.layerInstructions = [layerInstruction]
+          videoInstructions.append(videoInstruction)
           try videoCompositionTrack.insertTimeRange(
             sourceRange,
             of: sourceVideoTrack,
@@ -237,6 +285,11 @@ import AVFoundation
         }
         exportSession.outputURL = outputURL
         exportSession.outputFileType = .mp4
+        let videoComposition = AVMutableVideoComposition()
+        videoComposition.renderSize = outputSize
+        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComposition.instructions = videoInstructions
+        exportSession.videoComposition = videoComposition
         exportSession.exportAsynchronously {
           DispatchQueue.main.async {
             switch exportSession.status {
@@ -256,6 +309,7 @@ import AVFoundation
         }
       } catch {
         DispatchQueue.main.async {
+          try? FileManager.default.removeItem(at: outputURL)
           result(FlutterError(code: "export_failed", message: error.localizedDescription, details: nil))
         }
       }
