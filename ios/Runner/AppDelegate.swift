@@ -3,7 +3,13 @@ import UIKit
 import AVFoundation
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, FlutterStreamHandler {
+  private var exportProgressSink: FlutterEventSink?
+  private var activeExportSession: AVAssetExportSession?
+  private var activeExportId: String?
+  private var activeExportWasCancelled = false
+  private var exportProgressTimer: Timer?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -17,6 +23,11 @@ import AVFoundation
       name: "pitchcut_ai/video_trim",
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
     )
+    let exportProgressChannel = FlutterEventChannel(
+      name: "pitchcut_ai/video_export_progress",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    exportProgressChannel.setStreamHandler(self)
     trimChannel.setMethodCallHandler { [weak self] call, result in
       if call.method == "generateThumbnail" {
         self?.generateThumbnail(arguments: call.arguments, result: result)
@@ -26,12 +37,54 @@ import AVFoundation
         self?.exportTimeline(arguments: call.arguments, result: result)
         return
       }
+      if call.method == "startExportTimeline" {
+        self?.exportTimeline(arguments: call.arguments, result: result, tracked: true)
+        return
+      }
+      if call.method == "cancelExport" {
+        self?.cancelExport(arguments: call.arguments, result: result)
+        return
+      }
       guard call.method == "trimVideo" else {
         result(FlutterMethodNotImplemented)
         return
       }
       self?.trimVideo(arguments: call.arguments, result: result)
     }
+  }
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    exportProgressSink = events
+    events(["type": "ready"])
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    exportProgressSink = nil
+    return nil
+  }
+
+  private func emitExportProgress(exportId: String, progress: Float) {
+    exportProgressSink?([
+      "exportId": exportId,
+      "type": "progress",
+      "progress": max(0, min(1, progress))
+    ])
+  }
+
+  private func cancelExport(arguments: Any?, result: @escaping FlutterResult) {
+    guard
+      let values = arguments as? [String: Any],
+      let exportId = values["exportId"] as? String,
+      exportId == activeExportId,
+      let session = activeExportSession
+    else {
+      result(nil)
+      return
+    }
+    activeExportWasCancelled = true
+    session.cancelExport()
+    result(nil)
   }
 
   private func generateThumbnail(arguments: Any?, result: @escaping FlutterResult) {
@@ -138,7 +191,11 @@ import AVFoundation
     }
   }
 
-  private func exportTimeline(arguments: Any?, result: @escaping FlutterResult) {
+  private func exportTimeline(
+    arguments: Any?,
+    result: @escaping FlutterResult,
+    tracked: Bool = false
+  ) {
     guard
       let values = arguments as? [String: Any],
       let clips = values["clips"] as? [[String: Any]],
@@ -147,6 +204,20 @@ import AVFoundation
     else {
       result(FlutterError(code: "invalid_timeline", message: "There are no clips to export.", details: nil))
       return
+    }
+    if tracked && (activeExportSession != nil || activeExportId != nil) {
+      result(FlutterError(code: "export_busy", message: "Another video export is already running.", details: nil))
+      return
+    }
+    let exportId = tracked ? values["exportId"] as? String : nil
+    let qualityHeight = tracked ? values["qualityHeight"] as? Int : nil
+    if tracked && (exportId == nil || ![480, 720, 1080].contains(qualityHeight ?? 0)) {
+      result(FlutterError(code: "invalid_export_settings", message: "The export quality is invalid.", details: nil))
+      return
+    }
+    if tracked {
+      activeExportId = exportId
+      activeExportWasCancelled = false
     }
 
     let composition = AVMutableComposition()
@@ -160,6 +231,7 @@ import AVFoundation
         preferredTrackID: kCMPersistentTrackID_Invalid
       )
     else {
+      if tracked { clearActiveExport() }
       result(FlutterError(code: "export_failed", message: "Could not create the video composition.", details: nil))
       return
     }
@@ -174,11 +246,12 @@ import AVFoundation
         try FileManager.default.removeItem(at: outputURL)
       }
     } catch {
+      if tracked { clearActiveExport() }
       result(FlutterError(code: "export_failed", message: error.localizedDescription, details: nil))
       return
     }
 
-    Task {
+    Task { @MainActor in
       do {
         var timelineCursor = CMTime.zero
         var videoInstructions: [AVMutableVideoCompositionInstruction] = []
@@ -275,12 +348,31 @@ import AVFoundation
           timelineCursor = CMTimeAdd(timelineCursor, sourceRange.duration)
         }
 
+        let sizePresets: [(Int, String)] = [
+          (480, AVAssetExportPreset640x480),
+          (720, AVAssetExportPreset1280x720),
+          (1080, AVAssetExportPreset1920x1080)
+        ]
+        let compatiblePresets = AVAssetExportSession.exportPresets(compatibleWith: composition)
+        let requestedPresets = sizePresets.filter { $0.0 <= (qualityHeight ?? 1080) }
+        let selectedPreset = tracked
+          ? (requestedPresets.reversed().first(where: {
+              compatiblePresets.contains($0.1)
+            })?.1 ?? (compatiblePresets.contains(AVAssetExportPresetHighestQuality)
+              ? AVAssetExportPresetHighestQuality
+              : compatiblePresets.first ?? AVAssetExportPresetHighestQuality))
+          : AVAssetExportPresetHighestQuality
         guard let exportSession = AVAssetExportSession(
           asset: composition,
-          presetName: AVAssetExportPresetHighestQuality
+          presetName: selectedPreset
         ), exportSession.supportedFileTypes.contains(.mp4) else {
           throw NSError(domain: "VideoTimeline", code: 3, userInfo: [
             NSLocalizedDescriptionKey: "This timeline cannot be exported as MP4."
+          ])
+        }
+        if tracked && self.activeExportWasCancelled {
+          throw NSError(domain: "VideoExport", code: -999, userInfo: [
+            NSLocalizedDescriptionKey: "Video export was cancelled."
           ])
         }
         exportSession.outputURL = outputURL
@@ -290,29 +382,61 @@ import AVFoundation
         videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
         videoComposition.instructions = videoInstructions
         exportSession.videoComposition = videoComposition
+        exportSession.shouldOptimizeForNetworkUse = true
+        activeExportSession = exportSession
+        if let exportId {
+          exportProgressTimer?.invalidate()
+          exportProgressTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self, weak exportSession] timer in
+            guard let self, let exportSession, self.activeExportId == exportId else {
+              timer.invalidate()
+              return
+            }
+            self.emitExportProgress(exportId: exportId, progress: exportSession.progress)
+          }
+        }
         exportSession.exportAsynchronously {
           DispatchQueue.main.async {
+            self.exportProgressTimer?.invalidate()
+            self.exportProgressTimer = nil
             switch exportSession.status {
             case .completed:
+              if let exportId { self.emitExportProgress(exportId: exportId, progress: 1) }
+              self.clearActiveExport()
               result(outputPath)
             case .failed, .cancelled:
               try? FileManager.default.removeItem(at: outputURL)
+              let cancelled = self.activeExportWasCancelled
+              self.clearActiveExport()
               result(FlutterError(
-                code: "export_failed",
-                message: exportSession.error?.localizedDescription ?? "Video export failed.",
+                code: cancelled ? "export_cancelled" : "export_failed",
+                message: cancelled ? "Video export was cancelled." :
+                  (exportSession.error?.localizedDescription ?? "Video export failed."),
                 details: nil
               ))
             default:
+              self.clearActiveExport()
               result(FlutterError(code: "export_failed", message: "Video export did not complete.", details: nil))
             }
           }
         }
       } catch {
         DispatchQueue.main.async {
+          let cancelled = self.activeExportWasCancelled
+          self.clearActiveExport()
           try? FileManager.default.removeItem(at: outputURL)
-          result(FlutterError(code: "export_failed", message: error.localizedDescription, details: nil))
+          result(FlutterError(
+            code: cancelled ? "export_cancelled" : "export_failed",
+            message: cancelled ? "Video export was cancelled." : error.localizedDescription,
+            details: nil
+          ))
         }
       }
     }
+  }
+
+  private func clearActiveExport() {
+    activeExportSession = nil
+    activeExportId = nil
+    activeExportWasCancelled = false
   }
 }

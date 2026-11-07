@@ -12,6 +12,7 @@ import 'package:pitchcut_ai/features/editor/services/editor_command_history.dart
 import 'package:pitchcut_ai/features/editor/services/editor_project_store.dart';
 import 'package:pitchcut_ai/features/editor/services/timeline_operations.dart';
 import 'package:pitchcut_ai/features/editor/services/video_trim_service.dart';
+import 'package:pitchcut_ai/features/editor/video_export_screen.dart';
 import 'package:pitchcut_ai/features/editor/widgets/video_timeline.dart';
 import 'package:pitchcut_ai/features/editor/widgets/crop_frame_editor.dart';
 import 'package:video_player/video_player.dart';
@@ -434,20 +435,20 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     await _persistProject();
   }
 
-  Future<void> _exportTimeline() async {
-    if (_clips.isEmpty || _isExporting) return;
-    setState(() => _isExporting = true);
-    try {
-      final path = await _trimService.exportTimeline(List.unmodifiable(_clips));
-      if (!await File(path).exists()) {
-        throw const FileSystemException('The exported video was not created.');
-      }
-      if (mounted) _showMessage('Exported video: $path');
-    } catch (error) {
-      if (mounted) _showMessage('Could not export the timeline: $error');
-    } finally {
-      if (mounted) setState(() => _isExporting = false);
-    }
+  Future<void> _openExportScreen() async {
+    if (_clips.isEmpty || _isBusy || _isCropping) return;
+    _isPlaybackActive = false;
+    await _controller?.pause();
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => VideoExportScreen(
+          clips: List.unmodifiable(_clips),
+          duration: _totalDuration,
+          sourceAspectRatio: _previewAspectRatio(_controller?.value),
+        ),
+      ),
+    );
   }
 
   void _onVideoChanged() {
@@ -813,10 +814,10 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
             icon: const Icon(Icons.add_to_photos_outlined),
           ),
           IconButton(
-            key: const ValueKey('export-video-timeline'),
-            tooltip: 'Export timeline',
+            key: const ValueKey('open-video-export-screen'),
+            tooltip: 'Export video',
             onPressed: _clips.isNotEmpty && !_isBusy && !_isCropping
-                ? _exportTimeline
+                ? _openExportScreen
                 : null,
             icon: _isExporting
                 ? const SizedBox(
