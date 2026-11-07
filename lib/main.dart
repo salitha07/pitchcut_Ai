@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:pitchcut_ai/features/editor/video_editor_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -56,6 +58,36 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
 
+  Future<void> _openVideoEditor() async {
+    try {
+      final files = await FilePicker.pickFiles(type: FileType.video);
+      if (!mounted || files.isEmpty) return;
+
+      final selectedFile = files.first;
+      final path = selectedFile.path;
+      if (path == null || path.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not access the selected video.')),
+        );
+        return;
+      }
+
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => VideoEditorScreen(
+            videoPath: path,
+            videoName: selectedFile.name,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open the video picker: $error')),
+      );
+    }
+  }
+
   void _incrementCounter() {
     setState(() {
       // This call to setState tells the Flutter framework that something has
@@ -84,6 +116,13 @@ class _MyHomePageState extends State<MyHomePage> {
         // Here we take the value from the MyHomePage object that was created by
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
+        actions: [
+          IconButton(
+            tooltip: 'Open video editor',
+            onPressed: _openVideoEditor,
+            icon: const Icon(Icons.video_library_outlined),
+          ),
+        ],
       ),
       body: Center(
         // Center is a layout widget. It takes a single child and positions it

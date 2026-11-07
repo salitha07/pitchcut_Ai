@@ -4,6 +4,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+dependencies {
+    implementation("androidx.media3:media3-transformer:1.11.1")
+}
+
 android {
     namespace = "com.pitchcut.pitchcut_ai"
     compileSdk = flutter.compileSdkVersion
