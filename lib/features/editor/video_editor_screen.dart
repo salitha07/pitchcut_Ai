@@ -469,8 +469,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       ),
     );
     final project = await _projectStore.load(widget.videoPath);
-    if (mounted && project != null)
+    if (mounted && project != null) {
       setState(() => _savedExports = project.exports);
+    }
   }
 
   List<EditorSuggestion> get _visibleSuggestions => widget.suggestions
@@ -605,8 +606,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       if (sourcePosition > controller.value.duration) {
         throw StateError('This clip range exceeds its source video duration.');
       }
-      if (sourcePosition > Duration.zero)
+      if (sourcePosition > Duration.zero) {
         await controller.seekTo(sourcePosition);
+      }
       _controller = controller;
       controller.addListener(_onVideoChanged);
       setState(() => _isLoading = false);
@@ -1206,8 +1208,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   }
 
   double _previewAspectRatio(VideoPlayerValue? value) {
-    if (_clips.isEmpty || value == null || value.aspectRatio <= 0)
+    if (_clips.isEmpty || value == null || value.aspectRatio <= 0) {
       return 16 / 9;
+    }
     final clip = _clips[_selectedClipIndex];
     final rotated = clip.rotationDegrees % 180 == 0
         ? value.aspectRatio

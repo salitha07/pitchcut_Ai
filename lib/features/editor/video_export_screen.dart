@@ -411,8 +411,9 @@ class _SavedVideoPlayerScreenState extends State<SavedVideoPlayerScreen> {
             if (mounted) setState(() {});
           })
           .catchError((Object error) {
-            if (mounted)
+            if (mounted) {
               setState(() => _error = 'Could not open saved video: $error');
+            }
           });
   }
 

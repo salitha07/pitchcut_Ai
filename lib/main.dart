@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:pitchcut_ai/features/editor/services/editor_project_store.dart';
 import 'package:pitchcut_ai/features/editor/video_editor_screen.dart';
 
 void main() {
@@ -57,6 +58,28 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
+  final EditorProjectStore _projectStore = EditorProjectStore();
+  List<String> _projectIds = const [];
+  bool _loadingProjects = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshProjects();
+  }
+
+  Future<void> _refreshProjects() async {
+    try {
+      final projectIds = await _projectStore.listProjectIds();
+      if (!mounted) return;
+      setState(() {
+        _projectIds = projectIds;
+        _loadingProjects = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingProjects = false);
+    }
+  }
 
   Future<void> _openVideoEditor() async {
     try {
@@ -74,18 +97,37 @@ class _MyHomePageState extends State<MyHomePage> {
 
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => VideoEditorScreen(
-            videoPath: path,
-            videoName: selectedFile.name,
-          ),
+          builder: (_) =>
+              VideoEditorScreen(videoPath: path, videoName: selectedFile.name),
         ),
       );
+      await _refreshProjects();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not open the video picker: $error')),
       );
     }
+  }
+
+  Future<void> _openSavedProject(String projectId) async {
+    final project = await _projectStore.load(projectId);
+    if (!mounted) return;
+    if (project == null || project.clips.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This project has no editable video.')),
+      );
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => VideoEditorScreen(
+          videoPath: projectId,
+          videoName: projectId.replaceAll('\\', '/').split('/').last,
+        ),
+      ),
+    );
+    await _refreshProjects();
   }
 
   void _incrementCounter() {
@@ -124,32 +166,30 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ],
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const Text('You have pushed the button this many times:'),
+          Text('$_counter', style: Theme.of(context).textTheme.headlineMedium),
+          const SizedBox(height: 28),
+          Text('Video projects', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          if (_loadingProjects)
+            const Center(child: CircularProgressIndicator())
+          else if (_projectIds.isEmpty)
+            const Text('Open a video to create your first project.')
+          else
+            for (final projectId in _projectIds)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.video_file_outlined),
+                  title: Text(projectId.replaceAll('\\', '/').split('/').last),
+                  subtitle: const Text('Tap to continue editing'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _openSavedProject(projectId),
+                ),
+              ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _incrementCounter,

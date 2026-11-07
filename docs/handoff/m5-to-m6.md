@@ -8,10 +8,13 @@ command history, and project persistence. Flutter widgets render the timeline,
 crop overlay, and suggestion UI. Native Android and iOS code handles video
 thumbnails, trimming, and export processing.
 
-The module is implemented in the repository, but native playback and media
-processing have not been verified on a physical device or simulator. See
+The module is implemented in the repository. Android native code has compiled
+and a real emulator export was verified and saved with project metadata. Full
+device coverage of each editing operation and reopening a saved project after
+app restart remain incomplete. See
 [Testing results and limitations](#12-testing-results-and-known-limitations)
-before treating platform behavior as production-verified.
+and `docs/handoff/m5-acceptance-review.md` before treating the module as
+accepted.
 
 ## 2. Feature status
 
@@ -189,7 +192,11 @@ range, and `exports` metadata. Exported videos are copied under
 and optional `thumbnailPath`. Project JSON writes use a temporary file and
 backup/rename path; export persistence removes the copied media if the metadata
 commit fails. The editor reloads exports when returning from the export flow
-and displays them as playable entries.
+and displays them as playable entries. The app home screen lists persisted
+project IDs through `EditorProjectStore.listProjectIds()` and opens a selected
+project in the editor. If a source path has expired (for example, a temporary
+picker path removed after restart), the editor cannot initialize that source;
+durable import of original media remains a recovery requirement.
 
 Storage tests use temporary files and a new `EditorProjectStore` instance to
 verify data reload. This simulates a fresh store, not an app process restart or
@@ -302,8 +309,16 @@ widget coverage for that action.
 
 ## 12. Testing results and known limitations
 
-Most recent recorded full test run: `flutter test --no-pub --reporter expanded`
-completed with **34 tests passed and 0 failed**. Coverage includes:
+Most recent full unit/widget test run: `flutter test --no-pub --reporter expanded`
+completed with **34 tests passed and 0 failed**. `flutter analyze --no-pub`
+completed with **No issues found**. Android `:app:compileDebugKotlin` and a
+debug APK build succeeded after correcting the Media3 `Effects` import. On the
+Android 17 emulator, an actual recorded video preview was opened and native
+export produced a non-empty MP4 and project metadata (720p, duration 7,252 ms).
+The exported file passed the app's player-based verification. See
+`docs/handoff/m5-acceptance-review.md` for precise evidence and limitations.
+
+Automated coverage includes:
 
 - Timeline split/delete/reorder/merge/rotate/crop rules and trim boundaries.
 - Crop-frame drag/resize behavior, timeline seeking/playhead movement, and
@@ -324,17 +339,14 @@ Not verified end-to-end:
 - Reopening and playing a saved output after an app process restart.
 - The wiring of M6 callbacks against a live suggestion-generation service.
 
-There is no `integration_test/` directory. `flutter analyze --no-pub` and
-`dart analyze` did not complete in the last verification environment (they
-stalled without diagnostics). Android Kotlin compilation could not start
-because the configured Gradle 9.3.1 distribution is missing from the local
-Gradle wrapper cache. `adb` device discovery failed because the environment
-could not create its `.android` directory. iOS native compilation requires
-macOS/Xcode and was not run. These are environment gaps, not passing checks.
-
-Before release, run platform builds and device tests for a valid local recording
-on Android and iOS, including real export cancellation and playback of the
-persisted output.
+`integration_test/m5_editor_export_test.dart` provides a real-file Android
+workflow for playback controls, export quality, native export, project metadata
+and saved-output playback. It requires `M5_VIDEO_PATH` to identify a video
+inside the app sandbox. The first integration-runner invocation stalled while
+fetching AGP 8.11.0 artifacts from Google Maven and never reached the app; it is
+not a passing test. Real native trim/merge/rotate/crop output, cancellation,
+explicit failure UI, and process-restart recovery remain unverified. iOS native
+compilation requires macOS/Xcode and was not run.
 
 ## 13. Setup and dependencies
 
@@ -371,21 +383,19 @@ Dart, Kotlin, and Swift.
 
 ## 14. Remaining work and integration risks
 
-1. Add a Flutter integration-test target and representative media fixtures, or
-   run the listed workflows manually on real devices.
-2. Restore a valid Gradle wrapper cache/toolchain and compile the Android
-   implementation; compile iOS on macOS/Xcode.
-3. Verify actual source-file access after app restart. Current project identity
+1. Run `integration_test/m5_editor_export_test.dart` when Google Maven is
+   reachable and provide an app-local video fixture.
+2. Verify actual source-file access after app restart. Current project identity
    and clip references use local paths, which can become stale if a source is
    moved or a picker-provided file is temporary.
-4. Verify trim/merge/export codec compatibility and transform output on a range
+3. Verify trim/merge/export codec compatibility and transform output on a range
    of device encoders and source aspect ratios.
-5. M6 should validate suggestions against the current clip order/durations and
+4. M6 should validate suggestions against the current clip order/durations and
    refresh stale suggestions after edits. The current callback only indicates
    user acceptance/dismissal, not successful action execution.
-6. If M6 needs more than seek/split/trim actions, expand the typed action model
+5. If M6 needs more than seek/split/trim actions, expand the typed action model
    and editor dispatcher with validation and tests. Keep suggestion generation
    outside M5’s UI component.
-7. Ensure project export storage retention/cleanup policy is defined; saved
+6. Ensure project export storage retention/cleanup policy is defined; saved
    outputs are kept in app support storage and there is currently no export
    deletion UI.

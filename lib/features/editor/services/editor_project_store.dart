@@ -60,13 +60,12 @@ class EditorProjectSnapshot {
 }
 
 class EditorProjectStore {
-  EditorProjectStore({Directory? rootDirectory})
-    : _rootDirectory = rootDirectory;
+  EditorProjectStore({this.rootDirectory});
 
-  final Directory? _rootDirectory;
+  final Directory? rootDirectory;
 
   Future<Directory> get _root async =>
-      _rootDirectory ?? await getApplicationSupportDirectory();
+      rootDirectory ?? await getApplicationSupportDirectory();
 
   Future<File> _fileFor(String projectId) async {
     final root = await _root;
@@ -101,6 +100,29 @@ class EditorProjectStore {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Returns project IDs whose JSON snapshots can still be read.
+  Future<List<String>> listProjectIds() async {
+    final root = await _root;
+    final directory = Directory('${root.path}/editor_projects');
+    if (!await directory.exists()) return const [];
+    final ids = <String>[];
+    await for (final entry in directory.list(followLinks: false)) {
+      if (entry is! File || !entry.path.endsWith('.json')) continue;
+      final encoded = entry.uri.pathSegments.last.substring(
+        0,
+        entry.uri.pathSegments.last.length - '.json'.length,
+      );
+      try {
+        final id = utf8.decode(base64Url.decode(base64Url.normalize(encoded)));
+        if (id.isNotEmpty && await load(id) != null) ids.add(id);
+      } on FormatException {
+        // Ignore unrelated or malformed files in the project directory.
+      }
+    }
+    ids.sort();
+    return List.unmodifiable(ids);
   }
 
   Future<void> save({
@@ -178,8 +200,9 @@ class EditorProjectStore {
           destination.path,
         );
       }
-      if (thumbnail != null)
+      if (thumbnail != null) {
         await thumbnail.writeAsBytes(thumbnailBytes!, flush: true);
+      }
       final item = SavedExport(
         filePath: destination.path,
         projectId: projectId,
@@ -207,8 +230,9 @@ class EditorProjectStore {
       return item;
     } catch (_) {
       if (copied && await destination.exists()) await destination.delete();
-      if (thumbnail != null && await thumbnail.exists())
+      if (thumbnail != null && await thumbnail.exists()) {
         await thumbnail.delete();
+      }
       rethrow;
     }
   }

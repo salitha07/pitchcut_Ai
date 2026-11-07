@@ -90,7 +90,7 @@ class _CropFramePainter extends CustomPainter {
       crop.right * size.width,
       crop.bottom * size.height,
     );
-    final shade = Paint()..color = Colors.black.withOpacity(0.55);
+    final shade = Paint()..color = Colors.black.withValues(alpha: 0.55);
     canvas.drawPath(
       Path()
         ..fillType = PathFillType.evenOdd

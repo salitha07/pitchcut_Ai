@@ -72,6 +72,7 @@ void main() {
       expect(reloaded.exports.single.filePath, saved.filePath);
       expect(reloaded.exports.single.projectId, projectId);
       expect(await restartedStore.load('/different/project'), isNull);
+      expect(await restartedStore.listProjectIds(), [projectId]);
     },
   );
 

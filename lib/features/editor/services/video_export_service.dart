@@ -41,8 +41,9 @@ class VideoExportService implements VideoExportBackend {
           if (!ready.isCompleted) ready.complete();
           return;
         }
-        if (event['exportId'] != exportId || event['type'] != 'progress')
+        if (event['exportId'] != exportId || event['type'] != 'progress') {
           return;
+        }
         final progress = event['progress'];
         if (progress is num) onProgress(progress.toDouble());
       },
