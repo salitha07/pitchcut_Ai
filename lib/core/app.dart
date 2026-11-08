@@ -13,5 +13,6 @@ class PitchCutApp extends StatelessWidget {
     theme: AppTheme.light,
     darkTheme: AppTheme.dark,
     routerConfig: appRouter,
+    themeMode: ThemeMode.dark, // <- add this line
   );
 }
