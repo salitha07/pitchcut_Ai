@@ -22,6 +22,7 @@ class VideoExportScreen extends StatefulWidget {
     this.projectClips = const [],
     this.selectedClipIndex = 0,
     this.trimRange = const TrimRange(start: Duration.zero, end: Duration.zero),
+    this.backend,
   });
 
   final List<VideoClip> clips;
@@ -31,6 +32,7 @@ class VideoExportScreen extends StatefulWidget {
   final List<VideoClip> projectClips;
   final int selectedClipIndex;
   final TrimRange trimRange;
+  final VideoExportBackend? backend;
 
   @override
   State<VideoExportScreen> createState() => _VideoExportScreenState();
@@ -47,8 +49,9 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
   @override
   void initState() {
     super.initState();
-    _exportController = VideoExportController(backend: VideoExportService())
-      ..addListener(_onExportStateChanged);
+    _exportController = VideoExportController(
+      backend: widget.backend ?? VideoExportService(),
+    )..addListener(_onExportStateChanged);
   }
 
   void _onExportStateChanged() {
