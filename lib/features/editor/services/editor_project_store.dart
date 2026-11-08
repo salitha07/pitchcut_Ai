@@ -59,6 +59,22 @@ class EditorProjectSnapshot {
   final List<SavedExport> exports;
 }
 
+class InvalidEditorSnapshotException implements Exception {
+  const InvalidEditorSnapshotException({
+    required this.projectId,
+    required this.filePath,
+    required this.reason,
+  });
+
+  final String projectId;
+  final String filePath;
+  final Object reason;
+
+  @override
+  String toString() =>
+      'Invalid editor snapshot for "$projectId" at "$filePath": $reason';
+}
+
 class EditorProjectStore {
   EditorProjectStore({this.rootDirectory});
 
@@ -97,10 +113,56 @@ class EditorProjectStore {
             .where((item) => item.projectId == projectId)
             .toList(growable: false),
       );
-    } catch (_) {
-      return null;
+    } catch (error) {
+      throw InvalidEditorSnapshotException(
+        projectId: projectId,
+        filePath: file.path,
+        reason: error,
+      );
     }
   }
+
+  /// Writes a read-through migration only when the canonical key is still
+  /// empty. The caller must validate every migrated timeline identity first.
+  /// The source key is deliberately left untouched.
+  Future<void> saveMigratedSnapshot({
+    required String projectId,
+    required List<VideoClip> clips,
+    required int selectedClipIndex,
+    required TrimRange trimRange,
+    required List<SavedExport> exports,
+  }) async {
+    final canonicalFile = await _fileFor(projectId);
+    final json = _snapshotJson(
+      clips: clips,
+      selectedClipIndex: selectedClipIndex,
+      trimRange: trimRange,
+      exports: exports,
+    );
+    try {
+      // File.create(exclusive: true) is an atomic create-if-absent operation.
+      // Only its winner writes; concurrent migrations cannot replace its file.
+      await canonicalFile.create(exclusive: true);
+    } on PathExistsException {
+      throw StateError('A canonical editor snapshot already exists.');
+    }
+    await canonicalFile.writeAsString(jsonEncode(json), flush: true);
+  }
+
+  Map<String, Object?> _snapshotJson({
+    required List<VideoClip> clips,
+    required int selectedClipIndex,
+    required TrimRange trimRange,
+    required List<SavedExport> exports,
+  }) => {
+    'clips': clips.map((clip) => clip.toJson()).toList(growable: false),
+    'selectedClipIndex': selectedClipIndex,
+    'trimRange': {
+      'startMs': trimRange.start.inMilliseconds,
+      'endMs': trimRange.end.inMilliseconds,
+    },
+    'exports': exports.map((item) => item.toJson()).toList(growable: false),
+  };
 
   /// Returns project IDs whose JSON snapshots can still be read.
   Future<List<String>> listProjectIds() async {
@@ -133,20 +195,17 @@ class EditorProjectStore {
     List<SavedExport>? exports,
   }) async {
     final file = await _fileFor(projectId);
-    final savedExports =
-        exports ?? (await load(projectId))?.exports ?? const [];
-    final json = {
-      'clips': clips.map((clip) => clip.toJson()).toList(growable: false),
-      'selectedClipIndex': selectedClipIndex,
-      'trimRange': {
-        'startMs': trimRange.start.inMilliseconds,
-        'endMs': trimRange.end.inMilliseconds,
-      },
-      'exports': savedExports
-          .map((item) => item.toJson())
-          .toList(growable: false),
-    };
-    await _writeJson(file, json);
+    final existing = await load(projectId);
+    final savedExports = exports ?? existing?.exports ?? const [];
+    await _writeJson(
+      file,
+      _snapshotJson(
+        clips: clips,
+        selectedClipIndex: selectedClipIndex,
+        trimRange: trimRange,
+        exports: savedExports,
+      ),
+    );
   }
 
   /// Copies an already verified export into durable project storage, then

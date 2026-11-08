@@ -26,13 +26,31 @@ class TimelineOperations {
     final first = clip.copyWith(
       name: '${clip.name} (1)',
       duration: clipPosition,
+      timelineItemId: _splitTimelineId(clip, clip.sourceStart, clipPosition),
     );
     final second = clip.copyWith(
       name: '${clip.name} (2)',
       duration: clip.duration - clipPosition,
       sourceStart: clip.sourceStart + clipPosition,
+      timelineItemId: _splitTimelineId(
+        clip,
+        clip.sourceStart + clipPosition,
+        clip.duration - clipPosition,
+      ),
     );
     return [...clips.take(index), first, second, ...clips.skip(index + 1)];
+  }
+
+  static String? _splitTimelineId(
+    VideoClip clip,
+    Duration sourceStart,
+    Duration duration,
+  ) {
+    final sourceId = clip.sourceClipId;
+    if (sourceId == null) return null;
+    final segmentId = clip.timelineItemId ?? 'source:$sourceId';
+    return '$segmentId@${sourceStart.inMilliseconds}+'
+        '${duration.inMilliseconds}';
   }
 
   static List<VideoClip> delete(List<VideoClip> clips, int index) {

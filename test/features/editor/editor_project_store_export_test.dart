@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -96,6 +97,68 @@ void main() {
     },
   );
 
+  test('empty snapshot is reported as invalid rather than missing', () async {
+    final store = EditorProjectStore(rootDirectory: root);
+    final snapshot = await _snapshotFile(root, projectId);
+    await snapshot.parent.create(recursive: true);
+    await snapshot.writeAsString('');
+
+    await expectLater(
+      store.load(projectId),
+      throwsA(
+        isA<InvalidEditorSnapshotException>().having(
+          (error) => error.projectId,
+          'projectId',
+          projectId,
+        ),
+      ),
+    );
+    expect(await snapshot.readAsString(), isEmpty);
+  });
+
+  test(
+    'truncated JSON snapshot is reported as invalid and preserved',
+    () async {
+      final store = EditorProjectStore(rootDirectory: root);
+      final snapshot = await _snapshotFile(root, projectId);
+      await snapshot.parent.create(recursive: true);
+      const malformed = '{"clips":[{"path":';
+      await snapshot.writeAsString(malformed);
+
+      await expectLater(
+        store.load(projectId),
+        throwsA(isA<InvalidEditorSnapshotException>()),
+      );
+      expect(await snapshot.readAsString(), malformed);
+    },
+  );
+
+  test(
+    'save with explicit exports does not replace an invalid snapshot',
+    () async {
+      final store = EditorProjectStore(rootDirectory: root);
+      final snapshot = await _snapshotFile(root, projectId);
+      await snapshot.parent.create(recursive: true);
+      const malformed = '{"clips":';
+      await snapshot.writeAsString(malformed);
+
+      await expectLater(
+        store.save(
+          projectId: projectId,
+          clips: const [clip],
+          selectedClipIndex: 0,
+          trimRange: const TrimRange(
+            start: Duration.zero,
+            end: Duration(seconds: 12),
+          ),
+          exports: const [],
+        ),
+        throwsA(isA<InvalidEditorSnapshotException>()),
+      );
+      expect(await snapshot.readAsString(), malformed);
+    },
+  );
+
   test('metadata write failure rolls back the copied video', () async {
     File('${root.path}/editor_projects').writeAsStringSync('not a directory');
     final store = EditorProjectStore(rootDirectory: root);
@@ -118,4 +181,9 @@ void main() {
         .toList();
     expect(files, isEmpty);
   });
+}
+
+Future<File> _snapshotFile(Directory root, String projectId) async {
+  final safeId = base64Url.encode(utf8.encode(projectId)).replaceAll('=', '');
+  return File('${root.path}/editor_projects/$safeId.json');
 }
