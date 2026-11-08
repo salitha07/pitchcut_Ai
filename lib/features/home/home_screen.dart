@@ -45,6 +45,12 @@ class HomeScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
+              onPressed: () => context.push('/video-editor'),
+              icon: const Icon(Icons.video_library_outlined),
+              label: const Text('Open Video Editor'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
               onPressed: () => context.push('/gallery'),
               icon: const Icon(Icons.widgets_outlined),
               label: const Text('Widget Gallery'),

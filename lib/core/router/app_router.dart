@@ -16,6 +16,7 @@ import '../../features/home/home_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import 'app_shell.dart';
 import '../../features/editor/debug/engine_debug_screen.dart';
+import '../../features/editor/video_editor_library_screen.dart';
 
 /// Refreshes GoRouter whenever Firebase authentication changes.
 class GoRouterRefreshStream extends ChangeNotifier {
@@ -76,6 +77,10 @@ final appRouter = GoRouter(
 
     // Editor
     GoRoute(path: '/editor', builder: (context, state) => const EditorScreen()),
+    GoRoute(
+      path: '/video-editor',
+      builder: (context, state) => const VideoEditorLibraryScreen(),
+    ),
 
     // Analysis
     GoRoute(

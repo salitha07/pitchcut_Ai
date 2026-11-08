@@ -11,6 +11,8 @@ import 'editor_engine.dart';
 /// Uses the `pitchcut/editor` [MethodChannel] for editing commands and the
 /// `pitchcut/editor/progress` [EventChannel] for streaming export progress.
 class MethodChannelEditorEngine implements EditorEngine {
+  static final Map<String, Object> _activeExportChannels = {};
+
   static const _contractErrorCodes = {
     'FILE_NOT_FOUND',
     'INVALID_RANGE',
@@ -166,9 +168,49 @@ class MethodChannelEditorEngine implements EditorEngine {
     List<Caption> captions = const [],
     int? targetHeight,
   }) {
+    final serializedCaptions = captions
+        .map(
+          (caption) => {
+            'startMs': caption.startMs,
+            'endMs': caption.endMs,
+            'text': caption.text,
+          },
+        )
+        .toList();
+
+    return _exportStream('export', {
+      'clipPaths': clipPaths,
+      'captions': serializedCaptions,
+      ...?(targetHeight == null ? null : {'targetHeight': targetHeight}),
+    });
+  }
+
+  @override
+  Stream<ExportEvent> exportTimeline({
+    required List<EditorTimelineItem> items,
+    required int targetHeight,
+  }) {
+    EditorEngine.validateTimelineExportRequest(
+      items: items,
+      targetHeight: targetHeight,
+    );
+
+    return _exportStream('exportTimeline', {
+      'items': items.map((item) => item.toMap()).toList(growable: false),
+      'targetHeight': targetHeight,
+    });
+  }
+
+  Stream<ExportEvent> _exportStream(
+    String method,
+    Map<String, Object?> arguments,
+  ) {
     late final StreamController<ExportEvent> controller;
     StreamSubscription<dynamic>? subscription;
+    final exportLease = Object();
+    var ownsExportChannel = false;
     var exportFinished = false;
+    Future<void>? terminalCleanup;
 
     ExportEvent? parseExportEvent(dynamic event) {
       if (event is! Map) return null;
@@ -187,8 +229,85 @@ class MethodChannelEditorEngine implements EditorEngine {
       return ExportEvent(progress, outputPath);
     }
 
+    Future<void> terminate({
+      Object? primaryError,
+      StackTrace? primaryStackTrace,
+      bool cancelEventSubscription = false,
+      bool cancelNativeExport = false,
+    }) {
+      if (terminalCleanup != null) return terminalCleanup!;
+
+      // Set this before any await so competing terminal events cannot start a
+      // second cleanup or replace the primary result.
+      exportFinished = true;
+      terminalCleanup = () async {
+        Object? nativeCancellationError;
+        StackTrace? nativeCancellationStackTrace;
+        try {
+          if (cancelEventSubscription) {
+            try {
+              await subscription?.cancel();
+            } catch (_) {
+              // EventChannel cancellation is secondary to the export result.
+            }
+          }
+          if (cancelNativeExport) {
+            try {
+              await _invokeNative('cancelExport');
+            } catch (error, stackTrace) {
+              nativeCancellationError = error;
+              nativeCancellationStackTrace = stackTrace;
+            }
+          }
+
+          if (primaryError != null && !controller.isClosed) {
+            controller.addError(primaryError, primaryStackTrace);
+          }
+          if (!controller.isClosed) {
+            // Closing is synchronous; awaiting its future here can wait on the
+            // downstream listener that is currently handling this terminal
+            // event. The stream itself still receives its done notification.
+            unawaited(controller.close().catchError((Object _) {}));
+          }
+        } finally {
+          if (ownsExportChannel &&
+              identical(
+                _activeExportChannels[_eventChannel.name],
+                exportLease,
+              )) {
+            _activeExportChannels.remove(_eventChannel.name);
+            ownsExportChannel = false;
+          }
+        }
+
+        // Preserve the existing listener-cancel behavior for a native cancel
+        // failure, after the stream guard and output stream have been cleaned.
+        if (nativeCancellationError != null) {
+          Error.throwWithStackTrace(
+            nativeCancellationError,
+            nativeCancellationStackTrace!,
+          );
+        }
+      }();
+      return terminalCleanup!;
+    }
+
     controller = StreamController<ExportEvent>(
       onListen: () async {
+        final eventChannelName = _eventChannel.name;
+        if (_activeExportChannels.containsKey(eventChannelName)) {
+          exportFinished = true;
+          controller.addError(
+            PlatformException(
+              code: 'EXPORT_FAILED',
+              message: 'An export is already running.',
+            ),
+          );
+          await controller.close();
+          return;
+        }
+        _activeExportChannels[eventChannelName] = exportLease;
+        ownsExportChannel = true;
         try {
           subscription = _eventChannel.receiveBroadcastStream().listen(
             (dynamic event) {
@@ -197,56 +316,41 @@ class MethodChannelEditorEngine implements EditorEngine {
               if (exportEvent == null) return;
               controller.add(exportEvent);
               if (exportEvent.outputPath != null) {
-                exportFinished = true;
-                controller.close();
+                unawaited(terminate(cancelEventSubscription: true));
               }
             },
             onError: (Object error, StackTrace stackTrace) {
               if (!exportFinished && !controller.isClosed) {
-                exportFinished = true;
-                controller.addError(_normalizeError(error), stackTrace);
-                controller.close();
+                unawaited(
+                  terminate(
+                    primaryError: _normalizeError(error),
+                    primaryStackTrace: stackTrace,
+                    cancelEventSubscription: true,
+                  ),
+                );
               }
             },
-            onDone: () {
-              exportFinished = true;
-              if (!controller.isClosed) {
-                controller.close();
-              }
-            },
+            onDone: () => unawaited(terminate()),
             cancelOnError: false,
           );
 
-          final serializedCaptions = captions
-              .map(
-                (caption) => {
-                  'startMs': caption.startMs,
-                  'endMs': caption.endMs,
-                  'text': caption.text,
-                },
-              )
-              .toList();
-
-          await _invokeNative('export', {
-            'clipPaths': clipPaths,
-            'captions': serializedCaptions,
-            ...?(targetHeight == null ? null : {'targetHeight': targetHeight}),
-          });
+          await _invokeNative(method, arguments);
         } catch (e, st) {
           if (!exportFinished && !controller.isClosed) {
-            exportFinished = true;
-            controller.addError(_normalizeError(e), st);
-            controller.close();
+            await terminate(
+              primaryError: _normalizeError(e),
+              primaryStackTrace: st,
+              cancelEventSubscription: true,
+            );
           }
         }
       },
       onCancel: () async {
         final shouldCancelNative = !exportFinished;
-        exportFinished = true;
-        await subscription?.cancel();
-        if (shouldCancelNative) {
-          await _invokeNative('cancelExport');
-        }
+        await terminate(
+          cancelEventSubscription: true,
+          cancelNativeExport: shouldCancelNative,
+        );
       },
     );
 

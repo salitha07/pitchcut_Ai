@@ -68,6 +68,16 @@ internal fun deleteTemporaryOutput(file: File?): Boolean {
 @UnstableApi
 class ExportService(private val context: Context) {
 
+    private var timelineMetadataReader: (String) -> TimelineSourceMetadata =
+        TimelineCompositionBuilder::readMetadata
+
+    internal constructor(
+        context: Context,
+        metadataReader: (String) -> TimelineSourceMetadata
+    ) : this(context) {
+        timelineMetadataReader = metadataReader
+    }
+
     companion object {
         /**
          * Caption font height as a fraction of the output frame height.
@@ -377,6 +387,21 @@ class ExportService(private val context: Context) {
         captions: List<Map<String, Any>>?,
         eventSink: EventChannel.EventSink?,
         callback: Callback
+    ) = exportInternal(clipPaths, targetHeight, captions, eventSink, callback)
+
+    internal fun exportTimeline(
+        request: TimelineExportRequest,
+        eventSink: EventChannel.EventSink?,
+        callback: Callback
+    ) = exportInternal(emptyList(), request.targetHeight, null, eventSink, callback, request)
+
+    private fun exportInternal(
+        clipPaths: List<String>,
+        targetHeight: Int,
+        captions: List<Map<String, Any>>?,
+        eventSink: EventChannel.EventSink?,
+        callback: Callback,
+        timeline: TimelineExportRequest? = null
     ) {
         val main = Handler(Looper.getMainLooper())
 
@@ -421,151 +446,174 @@ class ExportService(private val context: Context) {
 
         val workPosted = bgHandler.post {
             try {
-                if (clipPaths.isEmpty()) {
-                    session.fail(ErrorCodes.INVALID_RANGE, "clipPaths cannot be empty")
-                    return@post
-                }
-                if (targetHeight != 720 && targetHeight != 1080) {
-                    session.fail(
-                        ErrorCodes.INVALID_RANGE,
-                        "targetHeight must be 720 or 1080 (got $targetHeight)"
+                var timelineComposition: TimelineComposition? = null
+                val composition = if (timeline != null) {
+                    if (session.isFinished()) return@post
+                    val built = TimelineCompositionBuilder.build(
+                        timeline, session::isFinished, timelineMetadataReader
                     )
-                    return@post
-                }
-
-                val validatedClipDurationsMs = mutableListOf<Long>()
-                val validatedClipSizes = mutableListOf<ClipVideoSize>()
-                for (path in clipPaths) {
-                    if (!File(path).isFile) {
-                        session.fail(
-                            ErrorCodes.FILE_NOT_FOUND,
-                            "Source video not found: $path"
-                        )
-                        return@post
-                    }
-                    val retriever = MediaMetadataRetriever()
-                    var durationMs: Long? = null
-                    var videoWidth: Int? = null
-                    var videoHeight: Int? = null
-                    var rotationDegrees = 0
-                    var readError: String? = null
-                    try {
-                        retriever.setDataSource(path)
-                        durationMs = retriever
-                            .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                            ?.toLongOrNull()
-                        videoWidth = retriever
-                            .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                            ?.toIntOrNull()
-                        videoHeight = retriever
-                            .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                            ?.toIntOrNull()
-                        rotationDegrees = retriever
-                            .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-                            ?.toIntOrNull() ?: 0
-                    } catch (error: Exception) {
-                        readError = error.message ?: "Unable to read media metadata"
-                    } finally {
-                        try { retriever.release() } catch (_: Exception) {}
-                    }
-                    if (readError != null || durationMs == null || durationMs <= 0L ||
-                        videoWidth == null || videoWidth <= 0 ||
-                        videoHeight == null || videoHeight <= 0) {
-                        session.fail(
-                            ErrorCodes.UNSUPPORTED_FORMAT,
-                            "Unsupported or unreadable video: $path" +
-                                (readError?.let { " ($it)" } ?: "")
-                        )
-                        return@post
-                    }
-                    validatedClipDurationsMs.add(durationMs)
-                    validatedClipSizes.add(
-                        ClipVideoSize(videoWidth, videoHeight, rotationDegrees)
-                    )
-                }
-
-                val parsedCaptions: List<Caption>
-                if (captions == null) {
-                    parsedCaptions = emptyList()
+                    if (session.isFinished()) return@post
+                    timelineComposition = built
+                    session.postProgress(0f)
+                    built.composition
                 } else {
-                    val parsed = mutableListOf<Caption>()
-                    for ((index, map) in captions.withIndex()) {
-                        val start = parseCaptionTimestamp(map["startMs"])
-                        val end = parseCaptionTimestamp(map["endMs"])
-                        val text = try { map["text"] as? String } catch (_: Exception) { null }
-                        if (start == null || end == null || text == null || text.isBlank()) continue
-                        if (start < 0 || end <= start) {
+                    if (clipPaths.isEmpty()) {
+                        session.fail(ErrorCodes.INVALID_RANGE, "clipPaths cannot be empty")
+                        return@post
+                    }
+                    if (targetHeight != 720 && targetHeight != 1080) {
+                        session.fail(
+                            ErrorCodes.INVALID_RANGE,
+                            "targetHeight must be 720 or 1080 (got $targetHeight)"
+                        )
+                        return@post
+                    }
+
+                    val validatedClipDurationsMs = mutableListOf<Long>()
+                    val validatedClipSizes = mutableListOf<ClipVideoSize>()
+                    for (path in clipPaths) {
+                        if (!File(path).isFile) {
                             session.fail(
-                                ErrorCodes.INVALID_RANGE,
-                                "Caption[$index] has invalid timing"
+                                ErrorCodes.FILE_NOT_FOUND,
+                                "Source video not found: $path"
                             )
                             return@post
                         }
-                        parsed.add(Caption(start, end, text))
-                    }
-                    val totalDurationMs = validatedClipDurationsMs.sum()
-                    parsedCaptions = parsed
-                        .asSequence()
-                        .filter { it.startMs < totalDurationMs }
-                        .sortedBy { it.startMs }
-                        .toList()
-                }
-
-                session.postProgress(0f)
-
-                // Pre-compute each clip's duration so we can offset caption times.
-                // presentationTimeUs inside getBitmap() is relative to the START of that clip,
-                // so we need to add the cumulative offset of all preceding clips to convert to
-                // the global export timeline before matching against caption startMs/endMs.
-                var cumulativeOffsetMs = 0L
-                val editedItems = clipPaths.mapIndexed { clipIndex, path ->
-                    val mediaItem = MediaItem.fromUri(Uri.fromFile(File(path)))
-                    val effectList = mutableListOf<androidx.media3.common.Effect>()
-
-                    val clipSize = validatedClipSizes[clipIndex]
-                    val displayedHeight = clipSize.displayedHeight
-                    val scale = targetHeight.toFloat() / displayedHeight.toFloat()
-                    if (scale != 1f) {
-                        effectList.add(
-                            ScaleAndRotateTransformation.Builder()
-                                .setScale(scale, scale)
-                                .build()
+                        val retriever = MediaMetadataRetriever()
+                        var durationMs: Long? = null
+                        var videoWidth: Int? = null
+                        var videoHeight: Int? = null
+                        var rotationDegrees = 0
+                        var readError: String? = null
+                        try {
+                            retriever.setDataSource(path)
+                            durationMs = retriever
+                                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                ?.toLongOrNull()
+                            videoWidth = retriever
+                                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                                ?.toIntOrNull()
+                            videoHeight = retriever
+                                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                                ?.toIntOrNull()
+                            rotationDegrees = retriever
+                                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                                ?.toIntOrNull() ?: 0
+                        } catch (error: Exception) {
+                            readError = error.message ?: "Unable to read media metadata"
+                        } finally {
+                            try { retriever.release() } catch (_: Exception) {}
+                        }
+                        if (readError != null || durationMs == null || durationMs <= 0L ||
+                            videoWidth == null || videoWidth <= 0 ||
+                            videoHeight == null || videoHeight <= 0) {
+                            session.fail(
+                                ErrorCodes.UNSUPPORTED_FORMAT,
+                                "Unsupported or unreadable video: $path" +
+                                    (readError?.let { " ($it)" } ?: "")
+                            )
+                            return@post
+                        }
+                        validatedClipDurationsMs.add(durationMs)
+                        validatedClipSizes.add(
+                            ClipVideoSize(videoWidth, videoHeight, rotationDegrees)
                         )
                     }
 
-                    // 2. Caption overlay — only when captions exist.
-                    //
-                    //    Media3 resets presentationTimeUs to 0 at the start of each clip, so
-                    //    we capture the cumulative offset of this clip's start in the global
-                    //    export timeline and add it inside getBitmap() before comparing against
-                    //    caption startMs/endMs (which are expressed in the global timeline).
-                    if (parsedCaptions.isNotEmpty()) {
-                        val clipOffsetMs = cumulativeOffsetMs  // snapshot for this clip's lambda
-                        val overlay = buildCaptionOverlay(
-                            captions = parsedCaptions,
-                            clipOffsetMs = clipOffsetMs
-                        )
-                        session.retainCaptionOverlay(overlay)
-                        effectList.add(OverlayEffect(listOf(overlay)))
+                    val parsedCaptions: List<Caption>
+                    if (captions == null) {
+                        parsedCaptions = emptyList()
+                    } else {
+                        val parsed = mutableListOf<Caption>()
+                        for ((index, map) in captions.withIndex()) {
+                            val start = parseCaptionTimestamp(map["startMs"])
+                            val end = parseCaptionTimestamp(map["endMs"])
+                            val text = try { map["text"] as? String } catch (_: Exception) { null }
+                            if (start == null || end == null || text == null || text.isBlank()) continue
+                            if (start < 0 || end <= start) {
+                                session.fail(
+                                    ErrorCodes.INVALID_RANGE,
+                                    "Caption[$index] has invalid timing"
+                                )
+                                return@post
+                            }
+                            parsed.add(Caption(start, end, text))
+                        }
+                        val totalDurationMs = validatedClipDurationsMs.sum()
+                        parsedCaptions = parsed
+                            .asSequence()
+                            .filter { it.startMs < totalDurationMs }
+                            .sortedBy { it.startMs }
+                            .toList()
                     }
 
-                    cumulativeOffsetMs += validatedClipDurationsMs[clipIndex]
+                    session.postProgress(0f)
 
-                    val effects = Effects(emptyList(), effectList)
-                    EditedMediaItem.Builder(mediaItem)
-                        .setEffects(effects)
-                        .build()
+                    // Pre-compute each clip's duration so we can offset caption times.
+                    // presentationTimeUs inside getBitmap() is relative to the START of that clip,
+                    // so we need to add the cumulative offset of all preceding clips to convert to
+                    // the global export timeline before matching against caption startMs/endMs.
+                    var cumulativeOffsetMs = 0L
+                    val editedItems = clipPaths.mapIndexed { clipIndex, path ->
+                        val mediaItem = MediaItem.fromUri(Uri.fromFile(File(path)))
+                        val effectList = mutableListOf<androidx.media3.common.Effect>()
+
+                        val clipSize = validatedClipSizes[clipIndex]
+                        val displayedHeight = clipSize.displayedHeight
+                        val scale = targetHeight.toFloat() / displayedHeight.toFloat()
+                        if (scale != 1f) {
+                            effectList.add(
+                                ScaleAndRotateTransformation.Builder()
+                                    .setScale(scale, scale)
+                                    .build()
+                            )
+                        }
+
+                        // 2. Caption overlay — only when captions exist.
+                        //
+                        //    Media3 resets presentationTimeUs to 0 at the start of each clip, so
+                        //    we capture the cumulative offset of this clip's start in the global
+                        //    export timeline and add it inside getBitmap() before comparing against
+                        //    caption startMs/endMs (which are expressed in the global timeline).
+                        if (parsedCaptions.isNotEmpty()) {
+                            val clipOffsetMs = cumulativeOffsetMs  // snapshot for this clip's lambda
+                            val overlay = buildCaptionOverlay(
+                                captions = parsedCaptions,
+                                clipOffsetMs = clipOffsetMs
+                            )
+                            session.retainCaptionOverlay(overlay)
+                            effectList.add(OverlayEffect(listOf(overlay)))
+                        }
+
+                        cumulativeOffsetMs += validatedClipDurationsMs[clipIndex]
+
+                        val effects = Effects(emptyList(), effectList)
+                        EditedMediaItem.Builder(mediaItem)
+                            .setEffects(effects)
+                            .build()
+                    }
+
+                    // All clips joined into a single sequence (end-to-end).
+                    val sequence     = EditedMediaItemSequence(editedItems)
+                    Composition.Builder(listOf(sequence)).build()
                 }
-
-                // All clips joined into a single sequence (end-to-end).
-                val sequence     = EditedMediaItemSequence(editedItems)
-                val composition  = Composition.Builder(listOf(sequence)).build()
 
                 val transformer = Transformer.Builder(context)
                     .setLooper(ht.looper)
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(comp: Composition, exportResult: ExportResult) {
-                            val validationError = validateExportOutput(outputFile)
+                            val validationError = if (timelineComposition == null) {
+                                validateExportOutput(outputFile)
+                            } else {
+                                try {
+                                    validateExportOutput(outputFile)
+                                        ?: TimelineCompositionBuilder.validateOutput(
+                                            outputFile.absolutePath, requireNotNull(timelineComposition)
+                                        )
+                                } catch (error: Exception) {
+                                    "Unable to validate timeline output: ${error.message}"
+                                }
+                            }
                             if (validationError != null) {
                                 session.fail(
                                     ErrorCodes.EXPORT_FAILED,
@@ -616,12 +664,14 @@ class ExportService(private val context: Context) {
                 }
                 session.pollRunnable = poll
 
+                if (timeline != null && session.isFinished()) return@post
                 transformer.start(composition, outputFile.absolutePath)
                 bgHandler.post(poll)
 
             } catch (e: Exception) {
                 session.fail(
-                    ErrorCodes.EXPORT_FAILED,
+                    if (timeline == null) ErrorCodes.EXPORT_FAILED
+                    else if (e is TimelineExportException) e.code else ErrorCodes.mapThrowable(e),
                     e.message ?: "Failed to start export"
                 )
             }
