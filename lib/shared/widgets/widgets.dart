@@ -5,3 +5,5 @@ export 'empty_state.dart';
 export 'error_view.dart';
 export 'loading_view.dart';
 export 'placeholder_screen.dart';
+export 'project_tile.dart';
+export 'section_header.dart';
