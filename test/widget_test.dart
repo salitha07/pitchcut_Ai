@@ -1,30 +1,40 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:pitchcut_ai/main.dart';
+import 'package:pitchcut_ai/features/editor/debug/engine_debug_screen.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('debug screen displays engine controls when pumped directly', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: EngineDebugScreen()));
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('Editor Engine Debug'), findsOneWidget);
+    expect(find.text('TEMPORARY, M4 engine debug'), findsOneWidget);
+    expect(find.text('Burn Captions'), findsOneWidget);
+    expect(find.text('Hello PitchCut'), findsOneWidget);
+    expect(find.text('Start (ms)'), findsOneWidget);
+    expect(find.text('End (ms)'), findsOneWidget);
+    expect(find.text('Pick video clip'), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  testWidgets('caption timing is validated before export', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: EngineDebugScreen()));
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('caption-start-ms')),
+      '-1',
+    );
+
+    await tester.ensureVisible(find.byKey(const ValueKey('export-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('export-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Start time must be 0 or greater.'), findsOneWidget);
+    expect(find.text('Pick a video clip before exporting.'), findsNothing);
   });
 }

@@ -25,6 +25,7 @@ import android.os.Handler
 import android.os.Looper
 import java.io.File
 import java.io.ByteArrayOutputStream
+import com.pitchcut.pitchcut_ai.media3.EditorMethodHandler
 
 @OptIn(UnstableApi::class)
 class MainActivity : FlutterActivity() {
@@ -37,12 +38,18 @@ class MainActivity : FlutterActivity() {
     private var activeTransformer: Transformer? = null
     private var activeExportId: String? = null
     private var activeExportWasCancelled = false
+    private var editorMethodHandler: EditorMethodHandler? = null
+    private var videoTrimChannel: MethodChannel? = null
+    private var videoProgressChannel: EventChannel? = null
 
     @OptIn(UnstableApi::class)
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        editorMethodHandler = EditorMethodHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, "pitchcut_ai/video_export_progress")
-            .setStreamHandler(object : EventChannel.StreamHandler {
+            .also { channel ->
+                videoProgressChannel = channel
+                channel.setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     exportEventSink = events
                     events?.success(mapOf("type" to "ready"))
@@ -52,8 +59,11 @@ class MainActivity : FlutterActivity() {
                     exportEventSink = null
                 }
             })
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
+            .also { channel ->
+                videoTrimChannel = channel
+                channel.setMethodCallHandler { call, result ->
                 if (call.method == "generateThumbnail") {
                     val inputPath = call.argument<String>("inputPath")
                     val timeMs = call.argument<Int>("timeMs") ?: 0
@@ -178,7 +188,7 @@ class MainActivity : FlutterActivity() {
                                 .build()
                         }
                         File(outputPath).parentFile?.mkdirs()
-                        val sequence = EditedMediaItemSequence.withAudioAndVideoFrom(editedItems)
+                        val sequence = EditedMediaItemSequence(editedItems)
                         val composition = Composition.Builder(sequence).build()
                         val transformer = Transformer.Builder(this)
                             .setVideoMimeType(MimeTypes.VIDEO_H264)
@@ -283,7 +293,22 @@ class MainActivity : FlutterActivity() {
                     File(outputPath).delete()
                     result.error("trim_failed", error.message ?: "Video trimming failed.", null)
                 }
+                }
             }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        stopProgressPolling()
+        activeTransformer?.cancel()
+        clearActiveExport()
+        exportEventSink = null
+        videoTrimChannel?.setMethodCallHandler(null)
+        videoTrimChannel = null
+        videoProgressChannel?.setStreamHandler(null)
+        videoProgressChannel = null
+        editorMethodHandler?.dispose()
+        editorMethodHandler = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private var progressRunnable: Runnable? = null

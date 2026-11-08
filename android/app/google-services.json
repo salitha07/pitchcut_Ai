@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "31961981431",
+    "project_id": "pitchcut-ai-ae53c",
+    "storage_bucket": "pitchcut-ai-ae53c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:31961981431:android:7bd0545ac42f7538ca0ef2",
+        "android_client_info": {
+          "package_name": "com.pitchcut.pitchcut_ai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVDP4XDYZZaNWguNzBu4cnn5gsu7FGruQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
