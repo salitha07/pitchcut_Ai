@@ -11,12 +11,15 @@ import 'package:pitchcut_ai/features/editor/models/editor_suggestion.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_command_history.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_project_store.dart';
+import 'package:pitchcut_ai/features/editor/services/project_clip_adapter.dart';
 import 'package:pitchcut_ai/features/editor/services/timeline_operations.dart';
 import 'package:pitchcut_ai/features/editor/services/video_trim_service.dart';
 import 'package:pitchcut_ai/features/editor/video_export_screen.dart';
 import 'package:pitchcut_ai/features/editor/widgets/video_timeline.dart';
 import 'package:pitchcut_ai/features/editor/widgets/crop_frame_editor.dart';
 import 'package:pitchcut_ai/features/editor/widgets/suggestion_bar.dart';
+import 'package:pitchcut_ai/models/clip.dart' as m2;
+import 'package:pitchcut_ai/models/project.dart' as m2;
 import 'package:video_player/video_player.dart';
 
 /// A local video editor preview with a multi-clip playback timeline.
@@ -25,6 +28,12 @@ class VideoEditorScreen extends StatefulWidget {
     super.key,
     required this.videoPath,
     this.videoName,
+    this.project,
+    this.projectClips,
+    this.initialTimeline,
+    this.projectStore,
+    this.trimService,
+    this.fileExists,
     this.suggestions = const [],
     this.onSuggestionAccepted,
     this.onSuggestionDismissed,
@@ -32,6 +41,12 @@ class VideoEditorScreen extends StatefulWidget {
 
   final String videoPath;
   final String? videoName;
+  final m2.Project? project;
+  final List<m2.Clip>? projectClips;
+  final ProjectEditorTimeline? initialTimeline;
+  final EditorProjectStore? projectStore;
+  final VideoTrimService? trimService;
+  final Future<bool> Function(String path)? fileExists;
   final List<EditorSuggestion> suggestions;
   final ValueChanged<EditorSuggestion>? onSuggestionAccepted;
   final ValueChanged<EditorSuggestion>? onSuggestionDismissed;
@@ -44,8 +59,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   final List<VideoClip> _clips = [];
   final EditorCommandHistory<EditorStateSnapshot> _history =
       EditorCommandHistory<EditorStateSnapshot>();
-  final EditorProjectStore _projectStore = EditorProjectStore();
-  final VideoTrimService _trimService = VideoTrimService();
+  late final EditorProjectStore _projectStore;
+  late final VideoTrimService _trimService;
   List<SavedExport> _savedExports = const [];
   final Set<String> _dismissedSuggestionIds = {};
   VideoPlayerController? _controller;
@@ -86,6 +101,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   @override
   void initState() {
     super.initState();
+    _projectStore = widget.projectStore ?? EditorProjectStore();
+    _trimService = widget.trimService ?? VideoTrimService();
     _initializeFirstClip();
   }
 
@@ -96,12 +113,17 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     });
     VideoPlayerController? controller;
     try {
+      final initialTimeline = widget.initialTimeline;
+      if (initialTimeline != null) {
+        await _initializeFromSharedTimeline(initialTimeline);
+        return;
+      }
       final savedProject = await _projectStore.load(widget.videoPath);
       if (savedProject != null) {
         _savedExports = savedProject.exports;
         final savedClips = <VideoClip>[];
         for (final savedClip in savedProject.clips) {
-          if (!await File(savedClip.path).exists()) continue;
+          if (!await _fileExists(savedClip.path)) continue;
           Uint8List? thumbnail;
           try {
             thumbnail = await _trimService.generateThumbnail(
@@ -175,8 +197,76 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     }
   }
 
+  Future<void> _initializeFromSharedTimeline(
+    ProjectEditorTimeline timeline,
+  ) async {
+    if (widget.project != null && widget.project!.id != timeline.projectId) {
+      throw StateError('The selected project does not match its timeline.');
+    }
+    if (widget.projectClips?.any(
+          (clip) => clip.projectId != timeline.projectId,
+        ) ??
+        false) {
+      throw StateError('A source clip belongs to a different project.');
+    }
+    if (timeline.recoveryDiagnostic != null) {
+      throw StateError(timeline.recoveryDiagnostic!);
+    }
+    if (timeline.unmatchedItems.isNotEmpty ||
+        timeline.duplicateTimelineItemIds.isNotEmpty) {
+      throw StateError(
+        timeline.migrationDiagnostic ?? 'The saved timeline needs review.',
+      );
+    }
+    if (timeline.clips.isEmpty) {
+      throw StateError('This project has no editable timeline clips.');
+    }
+
+    final missing = <String>[];
+    for (final clip in timeline.clips) {
+      if (clip.path.trim().isEmpty || !await _fileExists(clip.path)) {
+        missing.add(clip.name);
+      }
+    }
+    if (missing.isNotEmpty) {
+      throw FileSystemException(
+        'Video file(s) are missing from the project: ${missing.join(', ')}.',
+      );
+    }
+
+    _savedExports = timeline.exports;
+    for (final savedClip in timeline.clips) {
+      Uint8List? thumbnail;
+      try {
+        thumbnail = await _trimService.generateThumbnail(
+          savedClip.path,
+          time:
+              savedClip.sourceStart +
+              Duration(milliseconds: savedClip.duration.inMilliseconds ~/ 3),
+        );
+      } catch (_) {
+        // Thumbnails are optional; the source timeline identity stays intact.
+      }
+      _clips.add(savedClip.copyWith(thumbnail: thumbnail));
+    }
+
+    _selectedClipIndex = timeline.selectedClipIndex.clamp(0, _clips.length - 1);
+    final savedRange = timeline.trimRange;
+    _trimRange = savedRange.isValidFor(_clips[_selectedClipIndex].duration)
+        ? savedRange
+        : TrimRange(
+            start: Duration.zero,
+            end: _clips[_selectedClipIndex].duration,
+          );
+    final requestedRange = _trimRange;
+    await _activateClip(_selectedClipIndex, position: requestedRange.start);
+    if (requestedRange.isValidFor(_clips[_selectedClipIndex].duration)) {
+      setState(() => _trimRange = requestedRange);
+    }
+  }
+
   Future<_ProbedClip> _probeClip(String path, String? name) async {
-    if (path.trim().isEmpty || !await File(path).exists()) {
+    if (path.trim().isEmpty || !await _fileExists(path)) {
       throw const FileSystemException('The selected video file was not found.');
     }
 
@@ -203,7 +293,11 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     }
   }
 
+  Future<bool> _fileExists(String path) =>
+      widget.fileExists?.call(path) ?? File(path).exists();
+
   String _friendlyError(Object error) {
+    if (error is StateError) return error.message.toString();
     if (error is FileSystemException) {
       return 'This video could not be found. Choose another recorded video.';
     }
@@ -253,7 +347,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     final trimRange = _trimRange;
     final write = _persistenceQueue.then(
       (_) => _projectStore.save(
-        projectId: widget.videoPath,
+        projectId: widget.project?.id ?? widget.videoPath,
         clips: clips,
         selectedClipIndex: selectedClipIndex,
         trimRange: trimRange,
