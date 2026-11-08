@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:camera/camera.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +14,7 @@ import 'package:pitchcut_ai/features/editor/models/trim_range.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/services/editor_project_store.dart';
 import 'package:pitchcut_ai/features/editor/services/m5_project_library_service.dart';
+import 'package:pitchcut_ai/features/editor/services/m5_video_import_service.dart';
 import 'package:pitchcut_ai/features/editor/services/project_clip_adapter.dart';
 import 'package:pitchcut_ai/features/editor/services/video_trim_service.dart';
 import 'package:pitchcut_ai/features/editor/video_editor_library_screen.dart';
@@ -30,7 +33,10 @@ void main() {
   late MemoryEditorProjectStore store;
   late FakeVideoPlayerPlatform videoPlatform;
   late FakeM5ProjectLibraryService projectLibrary;
+  late FakeM5VideoImporter videoImporter;
   late ProjectRepository repository;
+  late List<PlatformFile> pickedFiles;
+  late int pickerCalls;
 
   const project = Project(
     id: 'shared-project-ui',
@@ -44,6 +50,7 @@ void main() {
   late List<m2.Clip> orderedClips;
   late ProjectEditorTimeline timeline;
   late List<Project> listedProjects;
+  late M5ProjectSelection Function(Project project) selectionBuilder;
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('m5-library-widget-');
@@ -86,6 +93,8 @@ void main() {
       unmatchedItems: const [],
     );
     listedProjects = [project];
+    pickedFiles = [];
+    pickerCalls = 0;
     store = MemoryEditorProjectStore();
     videoPlatform = FakeVideoPlayerPlatform();
     VideoPlayerPlatform.instance = videoPlatform;
@@ -100,12 +109,14 @@ void main() {
       repository: repository,
       store: store,
       projects: () => listedProjects,
-      selection: (selected) => M5ProjectSelection(
-        project: selected,
-        sourceClips: orderedClips,
-        timeline: timeline,
-      ),
+      selection: (selected) => selectionBuilder(selected),
     );
+    selectionBuilder = (selected) => M5ProjectSelection(
+      project: selected,
+      sourceClips: orderedClips,
+      timeline: timeline,
+    );
+    videoImporter = FakeM5VideoImporter(project);
   });
 
   tearDown(() async {
@@ -120,6 +131,11 @@ void main() {
         projectStore: store,
         trimService: FakeVideoTrimService(),
         projectLibrary: projectLibrary,
+        videoImportService: videoImporter,
+        videoPicker: () async {
+          pickerCalls++;
+          return pickedFiles;
+        },
         fileExists: (_) async => true,
       ),
     ),
@@ -266,6 +282,168 @@ void main() {
     expect(find.byType(VideoEditorScreen), findsOneWidget);
     expect(store.loadCalls, contains(legacyId));
   });
+
+  testWidgets('picker cancellation leaves the library unchanged', (
+    tester,
+  ) async {
+    await tester.pumpWidget(library());
+    await _pumpFrames(tester);
+
+    await tester.tap(find.text('Open a video'));
+    await _pumpFrames(tester);
+
+    expect(pickerCalls, 1);
+    expect(videoImporter.calls, 0);
+    expect(find.byType(VideoEditorScreen), findsNothing);
+    expect(find.text('Shared M2 project'), findsOneWidget);
+  });
+
+  testWidgets('busy state prevents duplicate picker requests', (tester) async {
+    final pendingPicker = Completer<List<PlatformFile>>();
+    projectLibrary.selectedProject = null;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [projectRepositoryProvider.overrideWithValue(repository)],
+        child: MaterialApp(
+          home: VideoEditorLibraryScreen(
+            projectStore: store,
+            trimService: FakeVideoTrimService(),
+            projectLibrary: projectLibrary,
+            videoImportService: videoImporter,
+            videoPicker: () {
+              pickerCalls++;
+              return pendingPicker.future;
+            },
+            fileExists: (_) async => true,
+          ),
+        ),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    await tester.tap(find.text('Open a video'));
+    await _pumpFrames(tester);
+    expect(find.text('Importing video…'), findsOneWidget);
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton).first).onPressed,
+      isNull,
+    );
+    expect(pickerCalls, 1);
+
+    pendingPicker.complete([]);
+    await _pumpFrames(tester);
+    expect(find.text('Open a video'), findsOneWidget);
+    expect(videoImporter.calls, 0);
+  });
+
+  testWidgets('busy state covers M3 save and M2 clip loading', (tester) async {
+    pickedFiles = [TestPlatformFile('picked.mp4', '${root.path}/picked.mp4')];
+    videoImporter.pendingResult = Completer<Project>();
+    projectLibrary.pendingSelection = Completer<M5ProjectSelection>();
+    await tester.pumpWidget(library());
+    await _pumpFrames(tester);
+
+    await tester.tap(find.text('Open a video'));
+    await _pumpFrames(tester);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Save'));
+    await _pumpFrames(tester);
+    expect(find.text('Importing video…'), findsOneWidget);
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton).first).onPressed,
+      isNull,
+    );
+
+    videoImporter.pendingResult!.complete(project);
+    await _pumpFrames(tester);
+    expect(projectLibrary.selectedProject?.id, project.id);
+    expect(find.text('Importing video…'), findsOneWidget);
+    expect(find.byType(VideoEditorScreen), findsNothing);
+
+    projectLibrary.pendingSelection!.complete(
+      M5ProjectSelection(
+        project: project,
+        sourceClips: orderedClips,
+        timeline: timeline,
+      ),
+    );
+    await _pumpFrames(tester);
+    expect(find.byType(VideoEditorScreen), findsOneWidget);
+  });
+
+  testWidgets('successful M3 import loads M2 clips before navigation', (
+    tester,
+  ) async {
+    pickedFiles = [
+      TestPlatformFile('picked-match.mp4', '${root.path}/picked.mp4'),
+    ];
+    await tester.pumpWidget(library());
+    await _pumpFrames(tester);
+
+    await tester.tap(find.text('Open a video'));
+    await _pumpFrames(tester);
+    expect(find.text('Save Imported Video'), findsOneWidget);
+    expect(find.text('picked-match'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Save'));
+    await _pumpFrames(tester);
+
+    expect(videoImporter.calls, 1);
+    expect(
+      videoImporter.video?.path.replaceAll('\\', '/'),
+      '${root.path}/picked.mp4'.replaceAll('\\', '/'),
+    );
+    expect(videoImporter.title, 'picked-match');
+    expect(projectLibrary.selectedProject?.id, project.id);
+    expect(find.byType(VideoEditorScreen), findsOneWidget);
+    expect(store.saveCalls, 0);
+  });
+
+  testWidgets('ambiguous M3 write failure is not retried and refreshes list', (
+    tester,
+  ) async {
+    pickedFiles = [TestPlatformFile('picked.mp4', '${root.path}/picked.mp4')];
+    videoImporter.failure = StateError(
+      'Unable to complete Firebase project saving. Project ID: partial-id.',
+    );
+    await tester.pumpWidget(library());
+    await _pumpFrames(tester);
+
+    await tester.tap(find.text('Open a video'));
+    await _pumpFrames(tester);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Save'));
+    await _pumpFrames(tester);
+
+    expect(videoImporter.calls, 1);
+    expect(find.byType(VideoEditorScreen), findsNothing);
+    expect(find.textContaining('No retry was made'), findsOneWidget);
+    expect(projectLibrary.getProjectsCalls, greaterThanOrEqualTo(2));
+  });
+
+  testWidgets('post-import clip lookup failure does not navigate', (
+    tester,
+  ) async {
+    pickedFiles = [TestPlatformFile('picked.mp4', '${root.path}/picked.mp4')];
+    selectionBuilder = (selected) => M5ProjectSelection(
+      project: selected,
+      sourceClips: const [],
+      errorMessage: 'Project has no clips yet.',
+    );
+    await tester.pumpWidget(library());
+    await _pumpFrames(tester);
+
+    await tester.tap(find.text('Open a video'));
+    await _pumpFrames(tester);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Save'));
+    await _pumpFrames(tester);
+
+    expect(videoImporter.calls, 1);
+    expect(projectLibrary.selectedProject?.id, project.id);
+    expect(find.byType(VideoEditorScreen), findsNothing);
+    expect(
+      find.textContaining('The project remains in your library.'),
+      findsOneWidget,
+    );
+    expect(projectLibrary.getProjectsCalls, greaterThanOrEqualTo(2));
+  });
 }
 
 Future<void> _pumpFrames(WidgetTester tester) async {
@@ -288,15 +466,74 @@ class FakeM5ProjectLibraryService extends M5ProjectLibraryService {
   final List<Project> Function() projects;
   final M5ProjectSelection Function(Project project) selection;
   Project? selectedProject;
+  int getProjectsCalls = 0;
+  Completer<M5ProjectSelection>? pendingSelection;
 
   @override
-  Future<List<Project>> getProjects() async => projects();
+  Future<List<Project>> getProjects() async {
+    getProjectsCalls++;
+    return projects();
+  }
 
   @override
   Future<M5ProjectSelection> selectProject(Project project) async {
     selectedProject = project;
+    final pending = pendingSelection;
+    if (pending != null) return pending.future;
     return selection(project);
   }
+}
+
+class FakeM5VideoImporter implements M5VideoImporter {
+  FakeM5VideoImporter(this.result);
+
+  final Project result;
+  int calls = 0;
+  XFile? video;
+  String? title;
+  Object? failure;
+  Completer<Project>? pendingResult;
+
+  @override
+  Future<Project> importVideo({
+    required XFile video,
+    required String title,
+  }) async {
+    calls++;
+    this.video = video;
+    this.title = title;
+    if (failure case final error?) throw error;
+    final pending = pendingResult;
+    if (pending != null) return pending.future;
+    return result;
+  }
+}
+
+base class TestPlatformFile extends PlatformFile {
+  TestPlatformFile(this.name, this._path);
+
+  @override
+  final String name;
+  final String _path;
+
+  @override
+  Uri get uri => Uri.file(_path);
+
+  @override
+  XFile get xFile => XFile(_path, name: name);
+
+  @override
+  int? lengthSync() => 5;
+
+  @override
+  Future<int?> length() async => 5;
+
+  @override
+  Future<Uint8List> readAsBytes() async => Uint8List.fromList([1, 2, 3, 4, 5]);
+
+  @override
+  Stream<Uint8List> readAsByteStream() =>
+      Stream.value(Uint8List.fromList([1, 2, 3, 4, 5]));
 }
 
 class MemoryEditorProjectStore extends EditorProjectStore {

@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +10,7 @@ import '../../models/project.dart';
 import '../../providers/repository_providers.dart';
 import 'services/editor_project_store.dart';
 import 'services/m5_project_library_service.dart';
+import 'services/m5_video_import_service.dart';
 import 'services/project_clip_adapter.dart';
 import 'services/video_trim_service.dart';
 import 'video_editor_screen.dart';
@@ -18,12 +22,16 @@ class VideoEditorLibraryScreen extends ConsumerStatefulWidget {
     this.trimService,
     this.projectLibrary,
     this.fileExists,
+    this.videoImportService,
+    this.videoPicker,
   });
 
   final EditorProjectStore? projectStore;
   final VideoTrimService? trimService;
   final M5ProjectLibraryService? projectLibrary;
   final Future<bool> Function(String path)? fileExists;
+  final M5VideoImporter? videoImportService;
+  final Future<List<PlatformFile>> Function()? videoPicker;
 
   @override
   ConsumerState<VideoEditorLibraryScreen> createState() =>
@@ -34,10 +42,11 @@ class _VideoEditorLibraryScreenState
     extends ConsumerState<VideoEditorLibraryScreen> {
   late final EditorProjectStore _projectStore;
   late final M5ProjectLibraryService _projectLibrary;
+  late final M5VideoImporter _videoImportService;
   late Future<List<Project>> _sharedProjects;
   List<String> _projectIds = const [];
   bool _loading = true;
-  bool _pickingVideo = false;
+  bool _importingVideo = false;
   String? _openingProjectId;
 
   @override
@@ -50,6 +59,7 @@ class _VideoEditorLibraryScreenState
           projectRepository: ref.read(projectRepositoryProvider),
           projectStore: _projectStore,
         );
+    _videoImportService = widget.videoImportService ?? M5VideoImportService();
     _sharedProjects = _projectLibrary.getProjects();
     _refreshProjects();
   }
@@ -70,28 +80,150 @@ class _VideoEditorLibraryScreenState
   }
 
   void _reloadSharedProjects() {
-    setState(() => _sharedProjects = _projectLibrary.getProjects());
+    setState(() {
+      _sharedProjects = _projectLibrary.getProjects();
+    });
   }
 
   Future<void> _openVideo() async {
-    if (_pickingVideo) return;
-    setState(() => _pickingVideo = true);
+    if (_importingVideo) return;
+    setState(() => _importingVideo = true);
+    var refreshProjectLists = false;
+    Project? importedProject;
     try {
-      final files = await FilePicker.pickFiles(type: FileType.video);
+      final files =
+          await (widget.videoPicker?.call() ??
+              FilePicker.pickFiles(type: FileType.video));
       if (!mounted || files.isEmpty) return;
       final file = files.first;
       final path = file.path;
       if (path == null || path.isEmpty) {
-        _showMessage('Could not access the selected video.');
+        _showMessage(
+          'The selected video has no accessible file path. Choose a video stored on this device.',
+        );
         return;
       }
-      await _openProject(path, file.name);
+      if (!await _fileExists(path)) {
+        _showMessage(
+          'The selected video cannot be accessed. Choose another video and try again.',
+        );
+        return;
+      }
+      if (!mounted) return;
+
+      final title = await _requestImportTitle(file.name);
+      if (!mounted || title == null) return;
+
+      refreshProjectLists = true;
+      importedProject = await _videoImportService.importVideo(
+        video: XFile(path, name: file.name),
+        title: title,
+      );
+      if (!mounted) return;
+      final selection = await _projectLibrary.selectProject(importedProject);
+      if (!mounted) return;
+      if (!selection.canOpen) {
+        _showMessage(
+          '“${importedProject.title}” was imported, but its clips could not be opened. '
+          'The project remains in your library. ${selection.errorMessage ?? ''}',
+        );
+        return;
+      }
+
+      await _refreshProjectLists();
+      if (!mounted) return;
+      final timeline = selection.timeline!;
+      await _openProject(
+        importedProject.id,
+        importedProject.title,
+        project: importedProject,
+        projectClips: selection.sourceClips,
+        initialTimeline: timeline,
+      );
     } catch (error) {
-      if (mounted) _showMessage('Could not open the video picker: $error');
+      if (mounted) {
+        if (importedProject != null) {
+          _showMessage(
+            '“${importedProject.title}” was imported, but its clips could not be loaded. '
+            'The project remains in your library. $error',
+          );
+        } else if (error.toString().contains(
+          'Unable to complete Firebase project saving',
+        )) {
+          _showMessage(
+            'Firebase did not confirm the import. The video or project may already be saved. '
+            'No retry was made; refresh the library before trying again. $error',
+          );
+        } else {
+          _showMessage('Could not import the selected video: $error');
+        }
+      }
     } finally {
-      if (mounted) setState(() => _pickingVideo = false);
+      if (mounted) {
+        setState(() => _importingVideo = false);
+        if (refreshProjectLists) await _refreshProjectLists();
+      }
     }
   }
+
+  Future<String?> _requestImportTitle(String fileName) async {
+    final controller = TextEditingController(text: _defaultTitle(fileName));
+    String? title;
+    try {
+      title = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, updateDialog) => AlertDialog(
+            title: const Text('Save Imported Video'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: 80,
+              decoration: const InputDecoration(
+                labelText: 'Project Title',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => updateDialog(() {}),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: controller.text.trim().isEmpty
+                    ? null
+                    : () =>
+                          Navigator.of(dialogContext)
+                              .pop(controller.text.trim()),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+    }
+    return title?.trim();
+  }
+
+  String _defaultTitle(String fileName) {
+    final baseName = fileName.replaceAll('\\', '/').split('/').last;
+    final extensionStart = baseName.lastIndexOf('.');
+    final title = extensionStart > 0
+        ? baseName.substring(0, extensionStart)
+        : baseName;
+    return title.trim().isEmpty ? 'Imported Video' : title;
+  }
+
+  Future<void> _refreshProjectLists() async {
+    await _refreshProjects();
+    if (mounted) _reloadSharedProjects();
+  }
+
+  Future<bool> _fileExists(String path) =>
+      widget.fileExists?.call(path) ?? File(path).exists();
 
   Future<void> _openSavedProject(String projectId) async {
     try {
@@ -162,8 +294,7 @@ class _VideoEditorLibraryScreenState
       ),
     );
     if (mounted) {
-      await _refreshProjects();
-      _reloadSharedProjects();
+      await _refreshProjectLists();
     }
   }
 
@@ -230,9 +361,9 @@ class _VideoEditorLibraryScreenState
       padding: const EdgeInsets.all(20),
       children: [
         FilledButton.icon(
-          onPressed: _pickingVideo ? null : _openVideo,
+          onPressed: _importingVideo ? null : _openVideo,
           icon: const Icon(Icons.video_library_outlined),
-          label: Text(_pickingVideo ? 'Opening picker…' : 'Open a video'),
+          label: Text(_importingVideo ? 'Importing video…' : 'Open a video'),
         ),
         const SizedBox(height: 24),
         Text('M2 Projects', style: Theme.of(context).textTheme.titleLarge),
