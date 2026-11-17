@@ -85,7 +85,8 @@ final appRouter = GoRouter(
     // Analysis
     GoRoute(
       path: '/analysis',
-      builder: (context, state) => const AnalysisScreen(),
+      builder: (context, state) =>
+          AnalysisScreen(projectId: state.uri.queryParameters['projectId']),
     ),
 
     // Captions

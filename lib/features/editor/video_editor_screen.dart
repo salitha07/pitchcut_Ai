@@ -147,7 +147,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
           final savedRange = savedProject.trimRange;
           _trimRange =
               savedClips.isNotEmpty &&
-                  savedRange.isValidFor(savedClips[_selectedClipIndex].duration)
+                  savedRange.isValidFor(_clips[_selectedClipIndex].duration)
               ? savedRange
               : TrimRange(
                   start: Duration.zero,
@@ -577,20 +577,27 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     widget.onSuggestionDismissed?.call(suggestion);
   }
 
+  // Accepts an editor suggestion and executes its associated action.
   Future<void> _acceptSuggestion(EditorSuggestion suggestion) async {
     final action = suggestion.action;
+    var accepted = true;
+
     if (action is SeekSuggestionAction) {
       if (_isValidTimelinePosition(action.position)) {
         await _seekToTimeline(action.position);
       } else {
         _showMessage('That suggestion points outside the current timeline.');
+        accepted = false;
       }
     } else if (action is SplitSuggestionAction) {
       if (_isValidTimelinePosition(action.position)) {
         await _seekToTimeline(action.position);
-        if (_clips.isNotEmpty) await _splitSelectedClip();
+        if (_clips.isNotEmpty) {
+          await _splitSelectedClip();
+        }
       } else {
         _showMessage('That split point is outside the current timeline.');
+        accepted = false;
       }
     } else if (action is TrimSuggestionAction) {
       if (action.clipIndex >= 0 &&
@@ -601,10 +608,108 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
         await _trimSelectedClip();
       } else {
         _showMessage('That trim range is no longer valid for the timeline.');
+        accepted = false;
       }
+    } else if (action is RemovePauseSuggestionAction) {
+      accepted = await _removeSuggestedPause(action);
+    } else {
+      accepted = false;
     }
+
+    if (!mounted || !accepted) return;
+
     setState(() => _dismissedSuggestionIds.add(suggestion.id));
     widget.onSuggestionAccepted?.call(suggestion);
+  }
+
+  // Removes the detected pause while keeping the video before and after it.
+  Future<bool> _removeSuggestedPause(RemovePauseSuggestionAction action) async {
+    if (!action.isValid) {
+      _showMessage('This pause suggestion is invalid.');
+      return false;
+    }
+
+    final startMs = action.startMs;
+    final endMs = action.endMs;
+
+    // Find the timeline clip that contains the detected source-video pause.
+    final clipIndex = _clips.indexWhere((clip) {
+      final sourceStart = clip.sourceStart.inMilliseconds;
+      final sourceEnd = clip.sourceEnd.inMilliseconds;
+
+      return clip.sourceClipId == action.clipId &&
+          sourceStart <= startMs &&
+          sourceEnd >= endMs;
+    });
+
+    if (clipIndex == -1) {
+      _showMessage('The original clip or pause range could not be found.');
+      return false;
+    }
+
+    final clip = _clips[clipIndex];
+
+    // Convert source-video timestamps to positions inside the timeline clip.
+    final localStart = Duration(
+      milliseconds: startMs - clip.sourceStart.inMilliseconds,
+    );
+
+    // Keep the final 500ms before speech starts.
+    const preRollMs = 500;
+
+    final adjustedEndMs = endMs - preRollMs;
+
+    if (adjustedEndMs <= startMs) {
+      _showMessage('This pause is too short to preserve the pre-roll.');
+      return false;
+    }
+
+    final localEnd = Duration(
+      milliseconds: adjustedEndMs - clip.sourceStart.inMilliseconds,
+    );
+    final List<VideoClip> updatedClips;
+
+    try {
+      updatedClips = TimelineOperations.removeRange(
+        _clips,
+        clipIndex,
+        localStart,
+        localEnd,
+      );
+    } on ArgumentError {
+      _showMessage(
+        'Cannot remove this pause. Both remaining video segments '
+        'must be at least 0.5 seconds long.',
+      );
+      return false;
+    }
+
+    // Capture the previous timeline for undo support.
+    final before = _captureState();
+
+    _isPlaybackActive = false;
+    await _controller?.pause();
+
+    if (!mounted) return false;
+
+    // Replace the original clip with the two remaining video segments.
+    _clips
+      ..clear()
+      ..addAll(updatedClips);
+
+    await _activateClip(clipIndex);
+
+    if (!mounted) return false;
+
+    // Record the edit and save the updated project.
+    _recordEdit(before);
+    await _persistProject();
+
+    if (!mounted) return false;
+
+    _showMessage('Pause removed successfully.');
+
+    return true;
   }
 
   bool _isValidTimelinePosition(Duration position) =>
