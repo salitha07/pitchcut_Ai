@@ -6,9 +6,9 @@ class PerformanceReport {
   final String createdAt;
   final int score;
   final List<PauseSegment> pauses;
-  final int faceScore;
-  final int stabilityScore;
-  final int paceScore;
+  final int? faceScore;
+  final int? stabilityScore;
+  final int? paceScore;
   final List<String> tips;
 
   const PerformanceReport({
@@ -17,9 +17,9 @@ class PerformanceReport {
     required this.createdAt,
     required this.score,
     this.pauses = const [],
-    required this.faceScore,
-    required this.stabilityScore,
-    required this.paceScore,
+    this.faceScore,
+    this.stabilityScore,
+    this.paceScore,
     this.tips = const [],
   });
 
@@ -49,9 +49,9 @@ class PerformanceReport {
                 PauseSegment.fromJson(Map<String, dynamic>.from(item as Map)),
           )
           .toList(),
-      faceScore: json['faceScore'] as int,
-      stabilityScore: json['stabilityScore'] as int,
-      paceScore: json['paceScore'] as int,
+      faceScore: json['faceScore'] as int?,
+      stabilityScore: json['stabilityScore'] as int?,
+      paceScore: json['paceScore'] as int?,
       tips: List<String>.from(json['tips'] as List? ?? []),
     );
   }
