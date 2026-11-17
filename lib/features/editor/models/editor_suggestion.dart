@@ -2,28 +2,41 @@ import 'package:flutter/foundation.dart';
 
 import 'trim_range.dart';
 
-/// A typed editing action that can be attached to a suggestion.
-///
-/// Actions are data only. The editor validates them against its current
-/// timeline before executing them.
 sealed class EditorSuggestionAction {
   const EditorSuggestionAction();
 }
 
 class SeekSuggestionAction extends EditorSuggestionAction {
   const SeekSuggestionAction(this.position);
+
   final Duration position;
 }
 
 class SplitSuggestionAction extends EditorSuggestionAction {
   const SplitSuggestionAction(this.position);
+
   final Duration position;
 }
 
 class TrimSuggestionAction extends EditorSuggestionAction {
   const TrimSuggestionAction({required this.clipIndex, required this.range});
+
   final int clipIndex;
   final TrimRange range;
+}
+
+class RemovePauseSuggestionAction extends EditorSuggestionAction {
+  const RemovePauseSuggestionAction({
+    required this.clipId,
+    required this.startMs,
+    required this.endMs,
+  });
+
+  final String clipId;
+  final int startMs;
+  final int endMs;
+
+  bool get isValid => clipId.isNotEmpty && startMs >= 0 && endMs > startMs;
 }
 
 @immutable
@@ -37,7 +50,6 @@ class EditorSuggestion {
     this.action,
   });
 
-  /// Stable identifier supplied by the producer, used when dismissing items.
   final String id;
   final String title;
   final String? details;

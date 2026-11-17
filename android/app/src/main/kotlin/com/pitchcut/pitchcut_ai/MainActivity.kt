@@ -105,6 +105,45 @@ class MainActivity : FlutterActivity() {
                     }
                     return@setMethodCallHandler
                 }
+                                if (call.method == "extractFrames") {
+                    val inputPath = call.argument<String>("inputPath")
+                    val intervalMs = call.argument<Number>("intervalMs")?.toLong()
+                        ?: 1000L
+
+                    if (inputPath == null || !File(inputPath).isFile) {
+                        result.error(
+                            "missing_input",
+                            "The selected video file was not found.",
+                            null
+                        )
+                        return@setMethodCallHandler
+                    }
+
+                    Thread {
+                        try {
+                            val extractor = FaceFrameExtractor()
+                            val framePaths = extractor.extractFrames(
+                                inputPath = inputPath,
+                                outputDirectory = cacheDir,
+                                intervalMs = intervalMs
+                            )
+
+                            runOnUiThread {
+                                result.success(framePaths)
+                            }
+                        } catch (error: Exception) {
+                            runOnUiThread {
+                                result.error(
+                                    "frame_extraction_failed",
+                                    error.message,
+                                    null
+                                )
+                            }
+                        }
+                    }.start()
+
+                    return@setMethodCallHandler
+                }
                 if (call.method == "cancelExport") {
                     val exportId = call.argument<String>("exportId")
                     if (exportId != null && exportId == activeExportId && activeTransformer != null) {

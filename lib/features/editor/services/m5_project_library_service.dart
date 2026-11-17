@@ -23,21 +23,27 @@ class M5ProjectSelection {
 }
 
 /// M5-owned read and selection flow over the shared M2 project repository.
+
 class M5ProjectLibraryService {
   M5ProjectLibraryService({
-    required this._projectRepository,
-    required this._projectStore,
-    this._adapter = const ProjectClipAdapter(),
-  });
+    required ProjectRepository projectRepository,
+    required EditorProjectStore projectStore,
+    ProjectClipAdapter adapter = const ProjectClipAdapter(),
+  }) {
+    _projectRepository = projectRepository;
+    _projectStore = projectStore;
+    _adapter = adapter;
+  }
 
-  final ProjectRepository _projectRepository;
-  final EditorProjectStore _projectStore;
-  final ProjectClipAdapter _adapter;
+  late final ProjectRepository _projectRepository;
+  late final EditorProjectStore _projectStore;
+  late final ProjectClipAdapter _adapter;
 
   Future<List<Project>> getProjects() => _projectRepository.getProjects();
 
   Future<M5ProjectSelection> selectProject(Project project) async {
     final clips = await _projectRepository.getClips(project.id);
+
     if (clips.isEmpty) {
       return M5ProjectSelection(
         project: project,
@@ -46,15 +52,19 @@ class M5ProjectLibraryService {
       );
     }
 
+    // Validate original source video files.
     final missingSourceClips = <Clip>[];
+
     for (final clip in clips) {
       if (clip.localPath.trim().isEmpty ||
           !await File(clip.localPath).exists()) {
         missingSourceClips.add(clip);
       }
     }
+
     if (missingSourceClips.isNotEmpty) {
       final ids = missingSourceClips.map((clip) => clip.id).join(', ');
+
       return M5ProjectSelection(
         project: project,
         sourceClips: clips,
@@ -62,12 +72,15 @@ class M5ProjectLibraryService {
       );
     }
 
+    // Load the saved editor timeline.
     var timeline = await _adapter.load(
       project: project,
       orderedClips: clips,
       store: _projectStore,
     );
+
     final recoveryError = timeline.recoveryDiagnostic;
+
     if (recoveryError != null) {
       return M5ProjectSelection(
         project: project,
@@ -80,6 +93,7 @@ class M5ProjectLibraryService {
     }
 
     final migrationError = timeline.migrationDiagnostic;
+
     if (timeline.unmatchedItems.isNotEmpty ||
         timeline.duplicateTimelineItemIds.isNotEmpty) {
       return M5ProjectSelection(
@@ -90,14 +104,18 @@ class M5ProjectLibraryService {
       );
     }
 
+    // Validate video files used by the saved timeline.
     final missingTimelineClips = <VideoClipPath>[];
+
     for (final clip in timeline.clips) {
       if (clip.path.trim().isEmpty || !await File(clip.path).exists()) {
         missingTimelineClips.add(VideoClipPath(clip.path, clip.name));
       }
     }
+
     if (missingTimelineClips.isNotEmpty) {
       final names = missingTimelineClips.map((clip) => clip.name).join(', ');
+
       return M5ProjectSelection(
         project: project,
         sourceClips: clips,
@@ -116,6 +134,7 @@ class M5ProjectLibraryService {
       );
     }
 
+    // Persist a validated legacy timeline migration.
     if (timeline.source == EditorSnapshotSource.legacyPath) {
       try {
         await _adapter.persistValidatedMigration(
@@ -123,14 +142,17 @@ class M5ProjectLibraryService {
           store: _projectStore,
         );
       } on StateError {
-        // Another writer may have created the canonical snapshot after load.
-        // Reload and use it if valid; never replace it with stale legacy data.
+        // Another writer may have created the canonical snapshot.
+        // Reload it instead of overwriting it with stale legacy data.
         timeline = await _adapter.load(
           project: project,
           orderedClips: clips,
           store: _projectStore,
         );
-        if (timeline.source != EditorSnapshotSource.canonical) rethrow;
+
+        if (timeline.source != EditorSnapshotSource.canonical) {
+          rethrow;
+        }
       }
     }
 
