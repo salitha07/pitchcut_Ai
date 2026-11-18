@@ -92,7 +92,8 @@ final appRouter = GoRouter(
     // Captions
     GoRoute(
       path: '/captions',
-      builder: (context, state) => const CaptionsScreen(),
+      builder: (context, state) =>
+          CaptionsScreen(projectId: state.uri.queryParameters['projectId']),
     ),
 
     // Main app navigation
