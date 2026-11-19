@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 class ConfirmDialog {
   /// Shows an "Are you sure?" dialog. Returns true if the user confirms.
