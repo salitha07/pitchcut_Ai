@@ -3,7 +3,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:pitchcut_ai/features/editor/models/trim_range.dart';
 import 'package:pitchcut_ai/features/editor/models/crop_rect.dart';
 import 'package:pitchcut_ai/features/editor/models/editor_state_snapshot.dart';
