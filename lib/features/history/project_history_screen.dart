@@ -227,10 +227,30 @@ class ReportDetailScreen extends StatelessWidget {
             ),
           const SizedBox(height: 16),
           Text(
-            'Detected Pauses',
+            'Detected Pauses (${report.pauses.length})',
             style: Theme.of(context).textTheme.titleMedium,
           ),
-          Text('${report.pauses.length} pauses detected'),
+          const SizedBox(height: 8),
+          if (report.pauses.isEmpty)
+            const Text('No pauses detected.')
+          else
+            ...report.pauses.asMap().entries.map((entry) {
+              final index = entry.key;
+              final pause = entry.value;
+
+              return Card(
+                child: ListTile(
+                  leading: CircleAvatar(child: Text('${index + 1}')),
+                  title: Text('Start: ${_formatDuration(pause.startMs)}'),
+                  subtitle: Text(
+                    'End: ${_formatDuration(pause.endMs)}\n'
+                    'Duration: ${_formatDuration(pause.durationMs)}'
+                    '${pause.clipIndex != null ? '\nClip: ${pause.clipIndex! + 1}' : ''}',
+                  ),
+                  isThreeLine: true,
+                ),
+              );
+            }),
         ],
       ),
     );
@@ -249,4 +269,14 @@ String _formatDate(String iso) {
     return iso.substring(0, 10);
   }
   return iso;
+}
+
+String _formatDuration(int milliseconds) {
+  final totalSeconds = milliseconds ~/ 1000;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  final remainingMs = milliseconds % 1000;
+
+  return '$minutes:${seconds.toString().padLeft(2, '0')}.'
+      '${remainingMs.toString().padLeft(3, '0')}';
 }
