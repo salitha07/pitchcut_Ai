@@ -49,6 +49,7 @@ dependencies:
   uuid: ^4.6.0
   sensors_plus: ^7.1.1
   google_mlkit_face_detection: ^1.0.2
+  material_ui: any
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -69,6 +70,7 @@ dev_dependencies:
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
+  video_player_platform_interface: any
 flutter:
 
   # The following line ensures that the Material Icons font is
