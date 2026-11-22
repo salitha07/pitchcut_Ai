@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../models/project.dart';
+import 'project_history_screen.dart';
 import 'providers/history_providers.dart';
 
 class HistoryScreen extends ConsumerWidget {
@@ -22,6 +23,7 @@ class HistoryScreen extends ConsumerWidget {
           if (list.isEmpty) {
             return const Center(child: Text('No projects yet.'));
           }
+
           return ListView.separated(
             itemCount: list.length,
             separatorBuilder: (_, _) => const Divider(height: 1),
@@ -63,6 +65,14 @@ class _ProjectRow extends ConsumerWidget {
       title: Text(project.title),
       subtitle: Text('Updated ${date(project.updatedAt)}'),
       trailing: trailing,
+      leading: const Icon(Icons.folder_outlined),
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ProjectHistoryScreen(project: project),
+          ),
+        );
+      },
     );
   }
 }
