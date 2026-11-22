@@ -1,3 +1,4 @@
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
@@ -23,7 +24,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        content: const Text(
+          'Are you sure you want to logout from your account?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -44,7 +47,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       await _authRepository.logout();
 
-      // The authentication guard redirects to /login.
       if (!mounted) return;
       context.go('/login');
     } on FirebaseAuthException catch (e) {
@@ -70,91 +72,301 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Widget _sectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _infoTile({
+    required IconData icon,
+    required String title,
+    required String value,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 4,
+      ),
+      leading: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: const Color(0xFF8B5CF6).withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          icon,
+          color: const Color(0xFFB69CFF),
+          size: 21,
+        ),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 13,
+          color: Colors.grey,
+        ),
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          value,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final user = _user;
+
     final displayName = user?.displayName?.trim();
     final name = displayName == null || displayName.isEmpty
         ? 'User'
         : displayName;
+
     final email = user?.email ?? 'No email available';
 
+    final initial = name.isNotEmpty
+        ? name[0].toUpperCase()
+        : 'U';
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(
+        title: const Text(
+          'My Profile',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        centerTitle: false,
+      ),
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
+              constraints: const BoxConstraints(maxWidth: 520),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 16),
-                  CircleAvatar(
-                    radius: 48,
-                    backgroundColor: theme.colorScheme.primaryContainer,
-                    child: Icon(
-                      Icons.person_rounded,
-                      size: 56,
-                      color: theme.colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    name,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    email,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyLarge,
-                  ),
-                  const SizedBox(height: 32),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          ListTile(
-                            leading: const Icon(Icons.person_outline),
-                            title: const Text('Full Name'),
-                            subtitle: Text(name),
-                          ),
-                          const Divider(),
-                          ListTile(
-                            leading: const Icon(Icons.email_outlined),
-                            title: const Text('Email Address'),
-                            subtitle: Text(email),
-                          ),
-                          const Divider(),
-                          const ListTile(
-                            leading: Icon(Icons.verified_user_outlined),
-                            title: Text('Authentication'),
-                            subtitle: Text('Firebase Email & Password'),
-                          ),
-                        ],
+                  // Profile header
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF151A2C),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.06),
                       ),
                     ),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 92,
+                          height: 92,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              colors: [
+                                Color(0xFF8B5CF6),
+                                Color(0xFF38BDF8),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              initial,
+                              style: const TextStyle(
+                                fontSize: 38,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Text(
+                          name,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 23,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          email,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.white70,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 13,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF087F5B)
+                                .withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.verified_rounded,
+                                size: 15,
+                                color: Color(0xFF4ADE80),
+                              ),
+                              SizedBox(width: 7),
+                              Text(
+                                'Active Account',
+                                style: TextStyle(
+                                  color: Color(0xFF4ADE80),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+
+                  const SizedBox(height: 30),
+
+                  // Account information
+                  _sectionTitle('Account Information'),
+
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF151A2C),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.05),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        _infoTile(
+                          icon: Icons.person_outline_rounded,
+                          title: 'Full Name',
+                          value: name,
+                        ),
+                        const Divider(height: 1, indent: 16, endIndent: 16),
+                        _infoTile(
+                          icon: Icons.email_outlined,
+                          title: 'Email Address',
+                          value: email,
+                        ),
+                        const Divider(height: 1, indent: 16, endIndent: 16),
+                        _infoTile(
+                          icon: Icons.security_rounded,
+                          title: 'Authentication',
+                          value: 'Firebase Email & Password',
+                        ),
+                      ],
+                    ),
+                  ),
+
                   const SizedBox(height: 28),
-                  FilledButton.icon(
+
+                  // App information
+                  _sectionTitle('Application'),
+
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF151A2C),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.05),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(
+                            Icons.movie_creation_outlined,
+                            color: Color(0xFFB69CFF),
+                          ),
+                          title: const Text('PitchCut AI'),
+                          subtitle: const Text('AI Video Editing Application'),
+                          trailing: const Icon(
+                            Icons.check_circle_rounded,
+                            color: Color(0xFF4ADE80),
+                            size: 20,
+                          ),
+                        ),
+                        const Divider(height: 1, indent: 16, endIndent: 16),
+                        const ListTile(
+                          leading: Icon(
+                            Icons.info_outline_rounded,
+                            color: Color(0xFF38BDF8),
+                          ),
+                          title: Text('Application Version'),
+                          subtitle: Text('Version 1.0.0'),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  // Logout
+                  _sectionTitle('Account Actions'),
+
+                  OutlinedButton.icon(
                     onPressed: _isLoggingOut ? null : _logout,
                     icon: _isLoggingOut
                         ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            width: 19,
+                            height: 19,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
                           )
                         : const Icon(Icons.logout_rounded),
-                    label: Text(_isLoggingOut ? 'Logging out...' : 'Logout'),
-                    style: FilledButton.styleFrom(
+                    label: Text(
+                      _isLoggingOut ? 'Logging out...' : 'Logout',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFFF6B6B),
+                      side: const BorderSide(
+                        color: Color(0x66FF6B6B),
+                      ),
                       padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 22),
+
+                  const Center(
+                    child: Text(
+                      'Made with care • PitchCut AI',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white38,
+                      ),
                     ),
                   ),
                 ],
