@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../models/project.dart';
 import '../../providers/repository_providers.dart';
 import '../../shared/widgets/widgets.dart';
-import 'widgets/home_hero_card.dart';
+import 'widgets/feature_carousel.dart';
 import 'widgets/quick_action_tile.dart';
 
 /// Streams the signed-in user's projects once and keeps the subscription.
@@ -22,6 +21,64 @@ class HomeScreen extends ConsumerWidget {
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
+  }
+
+  /// Slides for the feature slideshow at the top of the home screen.
+  ///
+  /// Put the matching pictures in assets/images/features/. Until a picture
+  /// exists, its slide shows a gradient with the icon instead.
+  List<FeatureSlide> _featureSlides(BuildContext context) {
+    return [
+      FeatureSlide(
+        title: 'Record or import',
+        description:
+            'Film your presentation in the app or bring in a video you '
+            'already have.',
+        icon: Icons.videocam_rounded,
+        imageAsset: 'assets/images/features/record.jpg',
+        onTap: () => context.push('/record'),
+      ),
+      FeatureSlide(
+        title: 'Edit your video',
+        description:
+            'Trim, cut, merge, crop and rotate clips on a simple timeline.',
+        icon: Icons.content_cut_rounded,
+        imageAsset: 'assets/images/features/edit.jpg',
+        onTap: () => context.push('/video-editor'),
+      ),
+      FeatureSlide(
+        title: 'Find long pauses',
+        description:
+            'See where you paused for too long and cut those parts out.',
+        icon: Icons.graphic_eq_rounded,
+        imageAsset: 'assets/images/features/pauses.jpg',
+        onTap: () => context.push('/analysis'),
+      ),
+      FeatureSlide(
+        title: 'Check your framing',
+        description:
+            'See how well your face sits in the frame and how steady your '
+            'camera was.',
+        icon: Icons.center_focus_strong_rounded,
+        imageAsset: 'assets/images/features/framing.jpg',
+        onTap: () => context.push('/analysis'),
+      ),
+      FeatureSlide(
+        title: 'Add captions',
+        description:
+            'Generate captions automatically, then fix the words and timing.',
+        icon: Icons.closed_caption_rounded,
+        imageAsset: 'assets/images/features/captions.jpg',
+        onTap: () => context.push('/captions'),
+      ),
+      FeatureSlide(
+        title: 'Track your score',
+        description: 'See your presentation score and watch it improve.',
+        icon: Icons.trending_up_rounded,
+        imageAsset: 'assets/images/features/progress.jpg',
+        onTap: () => context.go('/history'),
+      ),
+    ];
   }
 
   @override
@@ -67,9 +124,9 @@ class HomeScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
 
-            // Main action
-            HomeHeroCard(onRecord: () => context.push('/record')),
-            const SizedBox(height: 16),
+            // Feature slideshow
+            FeatureCarousel(slides: _featureSlides(context)),
+            const SizedBox(height: 20),
 
             // Quick actions
             Row(
@@ -158,22 +215,6 @@ class HomeScreen extends ConsumerWidget {
                 );
               },
             ),
-
-            // Developer tools: visible only in debug builds
-            if (kDebugMode) ...[
-              const SizedBox(height: 20),
-              ExpansionTile(
-                title: const Text('Developer tools'),
-                leading: const Icon(Icons.build_rounded),
-                childrenPadding: const EdgeInsets.only(bottom: 8),
-                children: [
-                  ListTile(
-                    title: const Text('Widget gallery'),
-                    onTap: () => context.push('/gallery'),
-                  ),
-                ],
-              ),
-            ],
           ],
         ),
       ),
