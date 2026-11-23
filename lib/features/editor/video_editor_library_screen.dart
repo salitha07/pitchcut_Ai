@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/clip.dart';
+import '../../models/caption.dart' as m7;
 import '../../models/project.dart';
 import '../../providers/repository_providers.dart';
 import 'services/editor_project_store.dart';
@@ -279,6 +280,17 @@ class _VideoEditorLibraryScreenState
     List<Clip>? projectClips,
     ProjectEditorTimeline? initialTimeline,
   }) async {
+    var captions = const <m7.Caption>[];
+    if (project != null) {
+      try {
+        captions = await ref
+            .read(captionRepositoryProvider)
+            .getCaptions(project.id);
+      } catch (_) {
+        // The editor still opens without captions.
+      }
+    }
+    if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => VideoEditorScreen(
@@ -290,6 +302,7 @@ class _VideoEditorLibraryScreenState
           projectStore: _projectStore,
           trimService: widget.trimService,
           fileExists: widget.fileExists,
+          captions: captions,
         ),
       ),
     );
