@@ -329,6 +329,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                   const SizedBox(height: 30),
 
+                  // Settings
+                  _sectionTitle('Settings'),
+
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF151A2C),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.05),
+                      ),
+                    ),
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.settings_outlined,
+                        color: Color(0xFFB69CFF),
+                      ),
+                      title: const Text('Settings'),
+                      subtitle: const Text(
+                        'Appearance and app preferences',
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_right_rounded,
+                      ),
+                      onTap: () => context.push('/settings'),
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+
                   // Logout
                   _sectionTitle('Account Actions'),
 
