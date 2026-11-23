@@ -1,14 +1,13 @@
+
 import 'package:material_ui/material_ui.dart';
 
 class AppTheme {
-  // Brand colour. Keep the value you chose.
-  static const Color _seed = Color.fromARGB(255, 38, 30, 187);
+  static const Color _seed = Color(0xFF8B5CF6);
 
-  // Dark palette: change these to make the app lighter or darker.
-  static const Color _darkBackground = Color(0xFF0B0F14); // page background
-  static const Color _darkCard = Color(0xFF151B23); // cards, bottom bar
-  static const Color _darkCardHigh = Color(0xFF1B232D); // raised surfaces
-  static const Color _darkBorder = Color(0xFF263040); // thin outlines
+  static const Color _darkBackground = Color(0xFF090B18);
+  static const Color _darkCard = Color(0xFF171A2E);
+  static const Color _darkCardHigh = Color(0xFF20243B);
+  static const Color _darkBorder = Color(0xFF303650);
 
   static ThemeData get light => _build(Brightness.light);
   static ThemeData get dark => _build(Brightness.dark);
@@ -16,10 +15,15 @@ class AppTheme {
   static ThemeData _build(Brightness brightness) {
     final isLight = brightness == Brightness.light;
 
-    var scheme = ColorScheme.fromSeed(seedColor: _seed, brightness: brightness);
+    var scheme = ColorScheme.fromSeed(
+      seedColor: _seed,
+      brightness: brightness,
+    );
 
     if (!isLight) {
       scheme = scheme.copyWith(
+        primary: const Color(0xFF8B5CF6),
+        secondary: const Color(0xFF38BDF8),
         surface: _darkBackground,
         surfaceContainerLowest: _darkBackground,
         surfaceContainerLow: _darkCard,
@@ -35,9 +39,9 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: isLight
-          ? const Color(0xFFF4F7F7)
-          : _darkBackground,
+      scaffoldBackgroundColor:
+          isLight ? const Color(0xFFF4F7F7) : _darkBackground,
+
       appBarTheme: AppBarTheme(
         centerTitle: false,
         elevation: 0,
@@ -50,24 +54,32 @@ class AppTheme {
           color: scheme.onSurface,
         ),
       ),
+
       cardTheme: CardThemeData(
         elevation: 0,
         color: cardColor,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+          side: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.6),
+          ),
         ),
       ),
+
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           minimumSize: const Size(0, 52),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
+
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(0, 52),
@@ -75,18 +87,27 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
+
       navigationBarTheme: NavigationBarThemeData(
         height: 68,
         elevation: 0,
-        backgroundColor: isLight ? Colors.white : const Color(0xFF0F141B),
+        backgroundColor:
+            isLight ? Colors.white : const Color(0xFF090B18),
         indicatorColor: scheme.primaryContainer,
         labelTextStyle: const WidgetStatePropertyAll(
-          TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
+
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: cardColor,
@@ -103,9 +124,12 @@ class AppTheme {
           vertical: 16,
         ),
       ),
+
       dialogTheme: DialogThemeData(
         backgroundColor: isLight ? Colors.white : _darkCardHigh,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
       ),
     );
   }
