@@ -12,18 +12,19 @@ import '../../features/capture/capture_screen.dart';
 import '../../features/captions/captions_screen.dart';
 import '../../features/dev/widget_gallery_screen.dart';
 import '../../features/editor/editor_screen.dart';
+import '../../features/editor/debug/engine_debug_screen.dart';
+import '../../features/editor/video_editor_library_screen.dart';
 import '../../features/history/history_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../features/splash/splash_screen.dart';
 import 'app_shell.dart';
-import '../../features/editor/debug/engine_debug_screen.dart';
-import '../../features/editor/video_editor_library_screen.dart';
 
 /// Refreshes GoRouter whenever Firebase authentication changes.
 class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
-    _subscription = stream.asBroadcastStream().listen((_) {
+    _subscription = stream.listen((_) {
       notifyListeners();
     });
   }
@@ -38,22 +39,27 @@ class GoRouterRefreshStream extends ChangeNotifier {
 }
 
 final appRouter = GoRouter(
-  initialLocation: '/home',
+  initialLocation: '/splash',
 
-  // Listen for login and logout changes.
   refreshListenable: GoRouterRefreshStream(
     FirebaseAuth.instance.authStateChanges(),
   ),
 
-  // Protect routes according to authentication status.
   redirect: (context, state) {
-    final isLoggedIn = FirebaseAuth.instance.currentUser != null;
+    final user = FirebaseAuth.instance.currentUser;
+    final isLoggedIn = user != null;
 
     final location = state.matchedLocation;
 
+    final isSplashPage = location == '/splash';
     final isLoginPage = location == '/login';
     final isSignupPage = location == '/signup';
+
     final isAuthPage = isLoginPage || isSignupPage;
+
+    if (isSplashPage) {
+      return null;
+    }
 
     if (!isLoggedIn && !isAuthPage) {
       return '/login';
@@ -67,14 +73,20 @@ final appRouter = GoRouter(
   },
 
   routes: [
-    // Temporary M4 video engine debug screen (debug builds only).
+    // SPLASH SCREEN
+    GoRoute(
+      path: '/splash',
+      builder: (context, state) => const SplashScreen(),
+    ),
+
+    // DEBUG SCREEN
     if (kDebugMode)
       GoRoute(
         path: '/engine-debug',
         builder: (context, state) => const EngineDebugScreen(),
       ),
 
-    // Authentication
+    // AUTHENTICATION
     GoRoute(
       path: '/login',
       builder: (context, state) => const LoginScreen(),
@@ -84,7 +96,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const SignupScreen(),
     ),
 
-    // Editor
+    // EDITOR
     GoRoute(
       path: '/editor',
       builder: (context, state) => const EditorScreen(),
@@ -94,7 +106,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const VideoEditorLibraryScreen(),
     ),
 
-    // Analysis
+    // ANALYSIS
     GoRoute(
       path: '/analysis',
       builder: (context, state) => AnalysisScreen(
@@ -102,13 +114,13 @@ final appRouter = GoRouter(
       ),
     ),
 
-    // Settings
+    // SETTINGS
     GoRoute(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
     ),
 
-    // Captions
+    // CAPTIONS
     GoRoute(
       path: '/captions',
       builder: (context, state) => CaptionsScreen(
@@ -116,13 +128,14 @@ final appRouter = GoRouter(
       ),
     ),
 
-    // Main app navigation
+    // MAIN APP NAVIGATION
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) {
-        return AppShell(navigationShell: navigationShell);
+        return AppShell(
+          navigationShell: navigationShell,
+        );
       },
       branches: [
-        // Home
         StatefulShellBranch(
           routes: [
             GoRoute(
@@ -131,8 +144,6 @@ final appRouter = GoRouter(
             ),
           ],
         ),
-
-        // Record
         StatefulShellBranch(
           routes: [
             GoRoute(
@@ -141,8 +152,6 @@ final appRouter = GoRouter(
             ),
           ],
         ),
-
-        // History
         StatefulShellBranch(
           routes: [
             GoRoute(
@@ -151,8 +160,6 @@ final appRouter = GoRouter(
             ),
           ],
         ),
-
-        // Profile
         StatefulShellBranch(
           routes: [
             GoRoute(
@@ -161,8 +168,6 @@ final appRouter = GoRouter(
             ),
           ],
         ),
-
-        // Widget gallery
         StatefulShellBranch(
           routes: [
             GoRoute(

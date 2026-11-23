@@ -18,6 +18,8 @@ import 'package:pitchcut_ai/features/editor/video_export_screen.dart';
 import 'package:pitchcut_ai/features/editor/widgets/video_timeline.dart';
 import 'package:pitchcut_ai/features/editor/widgets/crop_frame_editor.dart';
 import 'package:pitchcut_ai/features/editor/widgets/suggestion_bar.dart';
+import 'package:pitchcut_ai/features/captions/ui/caption_overlay.dart';
+import 'package:pitchcut_ai/models/caption.dart' as m7;
 import 'package:pitchcut_ai/models/clip.dart' as m2;
 import 'package:pitchcut_ai/models/project.dart' as m2;
 import 'package:video_player/video_player.dart';
@@ -37,6 +39,7 @@ class VideoEditorScreen extends StatefulWidget {
     this.suggestions = const [],
     this.onSuggestionAccepted,
     this.onSuggestionDismissed,
+    this.captions = const [],
   });
 
   final String videoPath;
@@ -50,6 +53,7 @@ class VideoEditorScreen extends StatefulWidget {
   final List<EditorSuggestion> suggestions;
   final ValueChanged<EditorSuggestion>? onSuggestionAccepted;
   final ValueChanged<EditorSuggestion>? onSuggestionDismissed;
+  final List<m7.Caption> captions;
 
   @override
   State<VideoEditorScreen> createState() => _VideoEditorScreenState();
@@ -1393,6 +1397,18 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
             fit: StackFit.expand,
             children: [
               cropped,
+              if (!_isCropping && widget.captions.isNotEmpty)
+                Positioned(
+                  left: 8,
+                  right: 8,
+                  bottom: 12,
+                  child: Center(
+                    child: CaptionOverlay(
+                      captions: widget.captions,
+                      positionMs: _timelinePosition.inMilliseconds,
+                    ),
+                  ),
+                ),
               if (_isCropping)
                 CropFrameEditor(
                   crop: _draftCrop,
