@@ -1,4 +1,3 @@
-
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,7 +16,9 @@ import '../../features/editor/video_editor_library_screen.dart';
 import '../../features/history/history_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/profile/profile_screen.dart';
+import '../../features/settings/settings_screen.dart';
 import '../../features/splash/splash_screen.dart';
+
 import 'app_shell.dart';
 
 /// Refreshes GoRouter whenever Firebase authentication changes.
@@ -38,15 +39,12 @@ class GoRouterRefreshStream extends ChangeNotifier {
 }
 
 final appRouter = GoRouter(
-  // Always start the app from Splash Screen.
   initialLocation: '/splash',
 
-  // Listen for Firebase authentication changes.
   refreshListenable: GoRouterRefreshStream(
     FirebaseAuth.instance.authStateChanges(),
   ),
 
-  // Authentication and navigation logic.
   redirect: (context, state) {
     final user = FirebaseAuth.instance.currentUser;
     final isLoggedIn = user != null;
@@ -59,100 +57,72 @@ final appRouter = GoRouter(
 
     final isAuthPage = isLoginPage || isSignupPage;
 
-    // 1. Always allow Splash Screen first.
+    // Always allow Splash Screen first.
     if (isSplashPage) {
       return null;
     }
 
-    // 2. If user is not logged in,
-    // redirect protected pages to Login.
+    // Redirect unauthenticated users to Login.
     if (!isLoggedIn && !isAuthPage) {
       return '/login';
     }
 
-    // 3. If user is already logged in,
-    // prevent Login and Signup pages.
+    // Prevent authenticated users from accessing Login/Signup.
     if (isLoggedIn && isAuthPage) {
       return '/home';
     }
 
-    // 4. No redirect needed.
     return null;
   },
 
   routes: [
-    // -------------------------------------
     // SPLASH SCREEN
-    // -------------------------------------
-    GoRoute(
-      path: '/splash',
-      builder: (context, state) => const SplashScreen(),
-    ),
+    GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
 
-    // -------------------------------------
     // DEBUG SCREEN
-    // -------------------------------------
     if (kDebugMode)
       GoRoute(
         path: '/engine-debug',
         builder: (context, state) => const EngineDebugScreen(),
       ),
 
-    // -------------------------------------
     // AUTHENTICATION
-    // -------------------------------------
-    GoRoute(
-      path: '/login',
-      builder: (context, state) => const LoginScreen(),
-    ),
+    GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
 
-    GoRoute(
-      path: '/signup',
-      builder: (context, state) => const SignupScreen(),
-    ),
+    GoRoute(path: '/signup', builder: (context, state) => const SignupScreen()),
 
-    // -------------------------------------
     // EDITOR
-    // -------------------------------------
-    GoRoute(
-      path: '/editor',
-      builder: (context, state) => const EditorScreen(),
-    ),
+    GoRoute(path: '/editor', builder: (context, state) => const EditorScreen()),
 
     GoRoute(
       path: '/video-editor',
-      builder: (context, state) =>
-          const VideoEditorLibraryScreen(),
+      builder: (context, state) => const VideoEditorLibraryScreen(),
     ),
 
-    // -------------------------------------
     // ANALYSIS
-    // -------------------------------------
     GoRoute(
       path: '/analysis',
-      builder: (context, state) => AnalysisScreen(
-        projectId: state.uri.queryParameters['projectId'],
-      ),
+      builder: (context, state) =>
+          AnalysisScreen(projectId: state.uri.queryParameters['projectId']),
     ),
 
-    // -------------------------------------
+    // SETTINGS
+    GoRoute(
+      path: '/settings',
+      builder: (context, state) => const SettingsScreen(),
+    ),
+
     // CAPTIONS
-    // -------------------------------------
     GoRoute(
       path: '/captions',
-      builder: (context, state) => CaptionsScreen(
-        projectId: state.uri.queryParameters['projectId'],
-      ),
+      builder: (context, state) =>
+          CaptionsScreen(projectId: state.uri.queryParameters['projectId']),
     ),
 
-    // -------------------------------------
     // MAIN APP NAVIGATION
-    // -------------------------------------
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) {
-        return AppShell(
-          navigationShell: navigationShell,
-        );
+        return AppShell(navigationShell: navigationShell);
       },
 
       branches: [
@@ -161,8 +131,7 @@ final appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/home',
-              builder: (context, state) =>
-                  const HomeScreen(),
+              builder: (context, state) => const HomeScreen(),
             ),
           ],
         ),
@@ -172,8 +141,7 @@ final appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/record',
-              builder: (context, state) =>
-                  const CaptureScreen(),
+              builder: (context, state) => const CaptureScreen(),
             ),
           ],
         ),
@@ -183,8 +151,7 @@ final appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/history',
-              builder: (context, state) =>
-                  const HistoryScreen(),
+              builder: (context, state) => const HistoryScreen(),
             ),
           ],
         ),
@@ -194,8 +161,7 @@ final appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/profile',
-              builder: (context, state) =>
-                  const ProfileScreen(),
+              builder: (context, state) => const ProfileScreen(),
             ),
           ],
         ),
@@ -205,8 +171,7 @@ final appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/gallery',
-              builder: (context, state) =>
-                  const WidgetGalleryScreen(),
+              builder: (context, state) => const WidgetGalleryScreen(),
             ),
           ],
         ),
