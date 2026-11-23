@@ -50,6 +50,8 @@ dependencies:
   sensors_plus: ^7.1.1
   google_mlkit_face_detection: ^1.0.2
   material_ui: any
+  shared_preferences: ^2.5.6
+  package_info_plus: ^10.2.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -1,3 +1,4 @@
+
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,6 +15,7 @@ import '../../features/editor/editor_screen.dart';
 import '../../features/history/history_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/profile/profile_screen.dart';
+import '../../features/settings/settings_screen.dart';
 import 'app_shell.dart';
 import '../../features/editor/debug/engine_debug_screen.dart';
 import '../../features/editor/video_editor_library_screen.dart';
@@ -71,12 +73,22 @@ final appRouter = GoRouter(
         path: '/engine-debug',
         builder: (context, state) => const EngineDebugScreen(),
       ),
+
     // Authentication
-    GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
-    GoRoute(path: '/signup', builder: (context, state) => const SignupScreen()),
+    GoRoute(
+      path: '/login',
+      builder: (context, state) => const LoginScreen(),
+    ),
+    GoRoute(
+      path: '/signup',
+      builder: (context, state) => const SignupScreen(),
+    ),
 
     // Editor
-    GoRoute(path: '/editor', builder: (context, state) => const EditorScreen()),
+    GoRoute(
+      path: '/editor',
+      builder: (context, state) => const EditorScreen(),
+    ),
     GoRoute(
       path: '/video-editor',
       builder: (context, state) => const VideoEditorLibraryScreen(),
@@ -85,15 +97,23 @@ final appRouter = GoRouter(
     // Analysis
     GoRoute(
       path: '/analysis',
-      builder: (context, state) =>
-          AnalysisScreen(projectId: state.uri.queryParameters['projectId']),
+      builder: (context, state) => AnalysisScreen(
+        projectId: state.uri.queryParameters['projectId'],
+      ),
+    ),
+
+    // Settings
+    GoRoute(
+      path: '/settings',
+      builder: (context, state) => const SettingsScreen(),
     ),
 
     // Captions
     GoRoute(
       path: '/captions',
-      builder: (context, state) =>
-          CaptionsScreen(projectId: state.uri.queryParameters['projectId']),
+      builder: (context, state) => CaptionsScreen(
+        projectId: state.uri.queryParameters['projectId'],
+      ),
     ),
 
     // Main app navigation
