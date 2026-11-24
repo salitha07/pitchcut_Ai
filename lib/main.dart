@@ -88,6 +88,16 @@ class _MyHomePageState extends State<MyHomePage> {
         // Here we take the values from the MyHomePage object that was created by
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
+        actions: [
+          if (kDebugMode)
+            IconButton(
+              icon: const Icon(Icons.build_circle_outlined),
+              tooltip: 'Engine Debug Screen',
+              onPressed: () {
+                Navigator.of(context).pushNamed(EngineDebugScreen.routeName);
+              },
+            ),
+        ],
       ),
       body: Center(
         // Center is a layout widget that positions its child in the middle.
