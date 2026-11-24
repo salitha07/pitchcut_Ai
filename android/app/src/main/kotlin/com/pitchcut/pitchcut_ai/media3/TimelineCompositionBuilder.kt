@@ -1,4 +1,4 @@
-package com.pitchcut.pitchcut_ai.media3
+﻿package com.pitchcut.pitchcut_ai.media3
 
 import android.media.MediaMetadataRetriever
 import android.media.MediaCodecList
@@ -8,6 +8,7 @@ import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Crop
+import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.transformer.Composition
@@ -68,7 +69,8 @@ internal object TimelineCompositionBuilder {
         request: TimelineExportRequest,
         isCancelled: () -> Boolean = { false },
         metadataReader: (String) -> TimelineSourceMetadata = ::readMetadata,
-        supportsCanvas: (Int, Int) -> Boolean = ::supportsAvcCanvas
+        supportsCanvas: (Int, Int) -> Boolean = ::supportsAvcCanvas,
+        retainCaptionOverlay: (CaptionBitmapOverlay) -> Unit = {}
     ): TimelineComposition {
         fun checkCancelled() {
             if (isCancelled()) throw CancellationException("Export cancelled")
@@ -117,6 +119,7 @@ internal object TimelineCompositionBuilder {
         val width = if (request.targetHeight == 1080 && aspectWidth > 1920 &&
             !supportsCanvas(aspectWidth, 1080) && supportsCanvas(1920, 1080)) 1920
             else aspectWidth
+        var clipOffsetMs = 0L
         val edited = request.items.map { item ->
             checkCancelled()
             val clipping = MediaItem.ClippingConfiguration.Builder()
@@ -133,6 +136,13 @@ internal object TimelineCompositionBuilder {
             item.crop?.toNdc()?.let { effects.add(Crop(it[0], it[1], it[2], it[3])) }
             effects.add(Presentation.createForWidthAndHeight(width, request.targetHeight,
                 Presentation.LAYOUT_SCALE_TO_FIT))
+            if (request.captions.isNotEmpty()) {
+                checkCancelled()
+                val overlay = CaptionBitmapOverlay(request.captions, clipOffsetMs)
+                retainCaptionOverlay(overlay)
+                effects.add(OverlayEffect(listOf(overlay)))
+            }
+            clipOffsetMs += item.endMs - item.startMs
             EditedMediaItem.Builder(media).setEffects(Effects(emptyList(), effects)).build()
         }
         val hasAudio = sources.any { it.hasAudio }
@@ -172,3 +182,4 @@ internal object TimelineCompositionBuilder {
         }
     }
 }
+

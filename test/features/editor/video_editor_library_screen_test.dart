@@ -201,7 +201,7 @@ void main() {
       await tester.tap(rotateButton);
       await _pumpFrames(tester);
 
-      expect(find.text('Rotate 180°'), findsOneWidget);
+      expect(find.text('Rotate 180\u00B0'), findsOneWidget);
       expect(store.saveCalls, 1);
       final saved = await store.load(project.id);
       expect(saved, isNotNull);
@@ -323,7 +323,7 @@ void main() {
 
     await tester.tap(find.text('Open a video'));
     await _pumpFrames(tester);
-    expect(find.text('Importing video…'), findsOneWidget);
+    expect(find.text('Importing video\u2026'), findsOneWidget);
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton).first).onPressed,
       isNull,
@@ -347,7 +347,7 @@ void main() {
     await _pumpFrames(tester);
     await tester.tap(find.widgetWithText(ElevatedButton, 'Save'));
     await _pumpFrames(tester);
-    expect(find.text('Importing video…'), findsOneWidget);
+    expect(find.text('Importing video\u2026'), findsOneWidget);
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton).first).onPressed,
       isNull,
@@ -356,7 +356,7 @@ void main() {
     videoImporter.pendingResult!.complete(project);
     await _pumpFrames(tester);
     expect(projectLibrary.selectedProject?.id, project.id);
-    expect(find.text('Importing video…'), findsOneWidget);
+    expect(find.text('Importing video\u2026'), findsOneWidget);
     expect(find.byType(VideoEditorScreen), findsNothing);
 
     projectLibrary.pendingSelection!.complete(

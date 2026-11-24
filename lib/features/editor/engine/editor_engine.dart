@@ -157,6 +157,7 @@ abstract class EditorEngine {
   /// preserved. [targetHeight] must be 480, 720, or 1080.
   Stream<ExportEvent> exportTimeline({
     required List<EditorTimelineItem> items,
+    List<Caption> captions = const [],
     required int targetHeight,
   });
 

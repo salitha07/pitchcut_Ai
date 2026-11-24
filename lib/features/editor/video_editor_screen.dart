@@ -1210,7 +1210,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                               : null,
                           icon: const Icon(Icons.rotate_right),
                           label: Text(
-                            'Rotate ${_clips.isEmpty ? 0 : (_clips[_selectedClipIndex].rotationDegrees + 90) % 360}°',
+                            'Rotate ${_clips.isEmpty ? 0 : (_clips[_selectedClipIndex].rotationDegrees + 90) % 360}\u00B0',
                           ),
                         ),
                         if (!_isCropping)
@@ -1280,7 +1280,11 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                                   ),
                                 )
                               : const Icon(Icons.content_cut),
-                          label: Text(_isTrimming ? 'Trimming…' : 'Trim'),
+                          label: Text(
+                            _isTrimming
+                                ? 'TrimmingÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦'
+                                : 'Trim',
+                          ),
                         ),
                       ],
                     ),
@@ -1338,7 +1342,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                               children: [
                                 Text('Edited video ${index + 1}'),
                                 Text(
-                                  '${saved.quality.label} · ${_formatTime(saved.duration)}',
+                                  '${saved.quality.label} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${_formatTime(saved.duration)}',
                                 ),
                                 const Text(
                                   'Tap to play',

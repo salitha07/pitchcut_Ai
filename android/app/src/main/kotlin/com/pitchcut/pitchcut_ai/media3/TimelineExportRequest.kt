@@ -1,4 +1,4 @@
-package com.pitchcut.pitchcut_ai.media3
+﻿package com.pitchcut.pitchcut_ai.media3
 
 internal class TimelineExportException(val code: String, message: String) : Exception(message)
 
@@ -21,7 +21,8 @@ internal data class TimelineExportItem(
 )
 
 internal data class TimelineExportRequest(
-    val items: List<TimelineExportItem>, val targetHeight: Int, val durationMs: Long
+    val items: List<TimelineExportItem>, val targetHeight: Int, val durationMs: Long,
+    val captions: List<ExportService.Caption> = emptyList()
 ) {
     companion object {
         private fun invalid(message: String): Nothing =
@@ -82,7 +83,22 @@ internal data class TimelineExportRequest(
                 total += duration
                 TimelineExportItem(path, start, end, rotation.toInt(), crop)
             }
-            return TimelineExportRequest(items, height.toInt(), total)
+            val captions = (args["captions"] as? List<*>)?.mapIndexedNotNull { index, raw ->
+                val caption = raw as? Map<*, *> ?: invalid("captions[$index] must be a map")
+                val start = integer(caption["startMs"], "captions[$index].startMs")
+                val end = integer(caption["endMs"], "captions[$index].endMs")
+                val text = caption["text"] as? String
+                    ?: invalid("captions[$index].text must be a string")
+                if (start < 0 || end <= start || end > Long.MAX_VALUE / 1000 || text.isBlank()) {
+                    invalid("captions[$index] has invalid timestamps or empty text")
+                }
+                if (start >= total) null else ExportService.Caption(start, end, text)
+            }?.sortedBy { it.startMs } ?: run {
+                if (args["captions"] == null) emptyList()
+                else invalid("captions must be a list")
+            }
+            return TimelineExportRequest(items, height.toInt(), total, captions)
         }
     }
 }
+

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pitchcut_ai/models/caption.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/models/video_export_state.dart';
 import 'package:pitchcut_ai/features/editor/services/video_export_controller.dart';
@@ -24,6 +25,7 @@ class _FakeExportBackend implements VideoExportBackend {
   Future<String> exportTimeline(
     List<VideoClip> clips,
     VideoExportQuality quality, {
+    List<Caption> captions = const [],
     required ExportProgressCallback onProgress,
   }) {
     progressCallback = onProgress;

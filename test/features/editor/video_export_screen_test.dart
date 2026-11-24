@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:pitchcut_ai/features/editor/engine/editor_engine.dart';
+import 'package:pitchcut_ai/models/caption.dart';
 
 import '../../fakes/fake_editor_engine.dart';
 
@@ -29,6 +30,7 @@ class _UiTimelineEngine extends FakeEditorEngine {
   @override
   Stream<ExportEvent> exportTimeline({
     required List<EditorTimelineItem> items,
+    List<Caption> captions = const [],
     required int targetHeight,
   }) {
     this.targetHeight = targetHeight;
@@ -72,11 +74,11 @@ void main() {
     expect(find.text('scene.mp4'), findsOneWidget);
     expect(find.text('0:45'), findsOneWidget);
     expect(find.text('MP4'), findsOneWidget);
-    expect(find.text('1280 × 720 (720p)'), findsOneWidget);
+    expect(find.text('1280 \u00D7 720 (720p)'), findsOneWidget);
 
     await tester.tap(find.text('1080p'));
     await tester.pump();
-    expect(find.text('1920 × 1080 (1080p)'), findsOneWidget);
+    expect(find.text('1920 \u00D7 1080 (1080p)'), findsOneWidget);
   });
 
   testWidgets('Export action streams engine progress and opens success', (

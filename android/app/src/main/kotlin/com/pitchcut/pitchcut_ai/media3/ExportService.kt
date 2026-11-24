@@ -1,4 +1,4 @@
-package com.pitchcut.pitchcut_ai.media3
+﻿package com.pitchcut.pitchcut_ai.media3
 
 import android.content.Context
 import android.media.MediaMetadataRetriever
@@ -61,8 +61,8 @@ internal fun deleteTemporaryOutput(file: File?): Boolean {
  * size scaled to 4.5% of the output frame height.
  *
  * Progress updates are emitted via [EventChannel.EventSink] as:
- *   `{ "progress": Float }` — 0.0 to 1.0
- *   `{ "progress": Float, "outputPath": String }` — final event on success
+ *   `{ "progress": Float }` â€” 0.0 to 1.0
+ *   `{ "progress": Float, "outputPath": String }` â€” final event on success
  * On cancellation an error event with code "CANCELLED" is emitted.
  */
 @UnstableApi
@@ -81,7 +81,7 @@ class ExportService(private val context: Context) {
     companion object {
         /**
          * Caption font height as a fraction of the output frame height.
-         * At 720p → about 32 px; at 1080p → about 49 px.
+         * At 720p â†’ about 32 px; at 1080p â†’ about 49 px.
          * Increase this value to make captions larger on all resolutions simultaneously.
          */
         private const val CAPTION_FONT_RATIO = 0.045f
@@ -449,9 +449,7 @@ class ExportService(private val context: Context) {
                 var timelineComposition: TimelineComposition? = null
                 val composition = if (timeline != null) {
                     if (session.isFinished()) return@post
-                    val built = TimelineCompositionBuilder.build(
-                        timeline, session::isFinished, timelineMetadataReader
-                    )
+                    val built = TimelineCompositionBuilder.build(timeline, session::isFinished, timelineMetadataReader, retainCaptionOverlay = session::retainCaptionOverlay)
                     if (session.isFinished()) return@post
                     timelineComposition = built
                     session.postProgress(0f)
@@ -569,7 +567,7 @@ class ExportService(private val context: Context) {
                             )
                         }
 
-                        // 2. Caption overlay — only when captions exist.
+                        // 2. Caption overlay â€” only when captions exist.
                         //
                         //    Media3 resets presentationTimeUs to 0 at the start of each clip, so
                         //    we capture the cumulative offset of this clip's start in the global
@@ -768,3 +766,4 @@ class ExportService(private val context: Context) {
         return number.toLong()
     }
 }
+

@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/caption.dart' as m7;
 import '../../models/performance_report.dart';
 import '../../models/project.dart';
 import '../../providers/repository_providers.dart';
@@ -119,6 +120,17 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         );
       }
 
+      var captions = const <m7.Caption>[];
+      try {
+        captions = await ref
+            .read(captionRepositoryProvider)
+            .getCaptions(project.id);
+      } catch (_) {
+        // The editor can still open if captions cannot be loaded.
+      }
+
+      if (!mounted) return;
+
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => VideoEditorScreen(
@@ -129,6 +141,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             initialTimeline: timeline,
             projectStore: projectStore,
             suggestions: suggestions,
+            captions: captions,
           ),
         ),
       );

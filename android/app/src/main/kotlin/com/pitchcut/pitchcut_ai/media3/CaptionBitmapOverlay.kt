@@ -101,13 +101,14 @@ internal class CaptionBitmapOverlay(
             val end = text.offsetByCodePoints(0, maxCaptionCodePoints - 1)
             text.substring(0, end) + "…"
         }
-        val layout = createCaptionLayout(boundedText, textPaint, maxTextWidth)
-        val contentWidth = (0 until layout.lineCount)
-            .maxOfOrNull(layout::getLineWidth)
+        val initialLayout = createCaptionLayout(boundedText, textPaint, maxTextWidth)
+        val contentWidth = (0 until initialLayout.lineCount)
+            .maxOfOrNull(initialLayout::getLineWidth)
             ?.coerceAtLeast(fontSize) ?: fontSize
-        val bitmapWidth = ceil(contentWidth + horizontalPadding * 2f)
-            .toInt().coerceIn(1, maxBoxWidth)
-        val bitmapHeight = ceil(layout.height + verticalPadding * 2f).toInt().coerceAtLeast(1)
+        val textLayoutWidth = ceil(contentWidth).toInt().coerceIn(1, maxTextWidth)
+        val layout = createCaptionLayout(boundedText, textPaint, textLayoutWidth)
+        val bitmapWidth = ceil(layout.width + horizontalPadding * 2f)
+            .toInt().coerceIn(1, maxBoxWidth)        val bitmapHeight = ceil(layout.height + verticalPadding * 2f).toInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -121,7 +122,7 @@ internal class CaptionBitmapOverlay(
             backgroundPaint
         )
         canvas.save()
-        canvas.translate((bitmapWidth - layout.width) / 2f, verticalPadding)
+        canvas.translate(horizontalPadding, verticalPadding)
         layout.draw(canvas)
         canvas.restore()
         return bitmap
