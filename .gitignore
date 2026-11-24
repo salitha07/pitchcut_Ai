@@ -48,3 +48,5 @@ app.*.map.json
 .widget_preview/
 
 /android/build/
+pitchcut_Ai/
+pitchcut_Ai_new/
