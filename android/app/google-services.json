@@ -12,7 +12,20 @@
           "package_name": "com.pitchcut.pitchcut_ai"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "31961981431-5i17m3r64nc3thuthea3thtvfd75rvmi.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.pitchcut.pitchcut_ai",
+            "certificate_hash": "595757e842ad6daa02fb32dccc97c9fc153284e1"
+          }
+        },
+        {
+          "client_id": "31961981431-g6tqmtcgggodhumoorc88s5m6cukhu0a.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAVDP4XDYZZaNWguNzBu4cnn5gsu7FGruQ"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "31961981431-g6tqmtcgggodhumoorc88s5m6cukhu0a.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "31961981431-hvs21b4ksc26314iggsrja1e2pf5kfmv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.pitchcut.pitchcutAi"
+              }
+            }
+          ]
         }
       }
     }

@@ -1,7 +1,7 @@
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../data/auth_repository.dart';
 
@@ -86,6 +86,65 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _signInWithGoogle() async {
+    if (_isLoading) return;
+
+    FocusScope.of(context).unfocus();
+    setState(() => _isLoading = true);
+
+    try {
+      // Initialize the Google Sign-In SDK before showing the account picker.
+      await GoogleSignIn.instance.initialize();
+
+      final googleUser = await GoogleSignIn.instance.authenticate();
+      final googleAuth = googleUser.authentication;
+
+      final idToken = googleAuth.idToken;
+      if (idToken == null) {
+        throw FirebaseAuthException(
+          code: 'missing-google-id-token',
+          message: 'Google sign-in did not return an ID token.',
+        );
+      }
+
+      final credential = GoogleAuthProvider.credential(idToken: idToken);
+
+      await FirebaseAuth.instance.signInWithCredential(credential);
+
+      if (!mounted) return;
+      context.go('/home');
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+
+      String message;
+      switch (e.code) {
+        case 'account-exists-with-different-credential':
+          message = 'An account already exists with this email using another sign-in method.';
+          break;
+        case 'network-request-failed':
+          message = 'Check your internet connection and try again.';
+          break;
+        case 'missing-google-id-token':
+          message = 'Google sign-in could not be completed. Please try again.';
+          break;
+        default:
+          message = e.message ?? 'Google sign-in failed. Please try again.';
+      }
+      _showMessage(message);
+    } catch (e, stackTrace) {
+      debugPrint('GOOGLE SIGN-IN ERROR: $e');
+      debugPrint('STACK TRACE: $stackTrace');
+
+      if (!mounted) return;
+
+      _showMessage('Google Sign-In failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
   Future<void> _resetPassword() async {
     FocusScope.of(context).unfocus();
 
@@ -100,9 +159,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isResettingPassword = true);
 
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(
-        email: email,
-      );
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
 
       if (!mounted) return;
 
@@ -140,9 +197,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   InputDecoration _inputDecoration({
@@ -152,22 +207,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }) {
     return InputDecoration(
       hintText: hint,
-      prefixIcon: Icon(
-        icon,
-        color: _muted,
-        size: 21,
-      ),
+      prefixIcon: Icon(icon, color: _muted, size: 21),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: _surface,
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 17,
-      ),
-      hintStyle: const TextStyle(
-        color: Color(0xFF758097),
-        fontSize: 14,
-      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 17),
+      hintStyle: const TextStyle(color: Color(0xFF758097), fontSize: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: _border),
@@ -178,10 +223,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: _purple,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: _purple, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
@@ -189,10 +231,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: Color(0xFFEF6464),
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: Color(0xFFEF6464), width: 1.5),
       ),
     );
   }
@@ -206,6 +245,50 @@ class _LoginScreenState extends State<LoginScreen> {
           color: Color(0xFFE0E5EF),
           fontSize: 13,
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _googleSignInButton() {
+    return SizedBox(
+      height: 52,
+      child: OutlinedButton(
+        onPressed: _isLoading ? null : _signInWithGoogle,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.white,
+          side: const BorderSide(color: _border),
+          backgroundColor: _surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 25,
+              height: 25,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(50),
+              ),
+              child: const Text(
+                'G',
+                style: TextStyle(
+                  color: Color(0xFF4285F4),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Continue with Google',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ],
         ),
       ),
     );
@@ -258,10 +341,7 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 25,
-              vertical: 30,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 30),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 430),
               child: AutofillGroup(
@@ -320,9 +400,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             return 'Please enter your email address.';
                           }
 
-                          if (!RegExp(
-                            r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                          ).hasMatch(email)) {
+                          if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                              .hasMatch(email)) {
                             return 'Enter a valid email address.';
                           }
 
@@ -378,8 +457,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed:
-                              _isResettingPassword ? null : _resetPassword,
+                          onPressed: _isResettingPassword
+                              ? null
+                              : _resetPassword,
                           style: TextButton.styleFrom(
                             foregroundColor: const Color(0xFFB69AFF),
                             padding: const EdgeInsets.symmetric(
@@ -413,8 +493,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           onPressed: _isLoading ? null : _login,
                           style: FilledButton.styleFrom(
                             backgroundColor: _purple,
-                            disabledBackgroundColor:
-                                _purple.withValues(alpha: 0.5),
+                            disabledBackgroundColor: _purple.withValues(
+                              alpha: 0.5,
+                            ),
                             foregroundColor: Colors.white,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
@@ -441,14 +522,40 @@ class _LoginScreenState extends State<LoginScreen> {
                                       ),
                                     ),
                                     SizedBox(width: 9),
-                                    Icon(
-                                      Icons.arrow_forward_rounded,
-                                      size: 19,
-                                    ),
+                                    Icon(Icons.arrow_forward_rounded, size: 19),
                                   ],
                                 ),
                         ),
                       ),
+
+                      const SizedBox(height: 20),
+
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Divider(color: _border, height: 1),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            child: Text(
+                              'OR CONTINUE WITH',
+                              style: TextStyle(
+                                color: _muted,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ),
+                          const Expanded(
+                            child: Divider(color: _border, height: 1),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      _googleSignInButton(),
 
                       const SizedBox(height: 28),
 
@@ -458,10 +565,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           const Flexible(
                             child: Text(
                               "Don't have an account?",
-                              style: TextStyle(
-                                color: _muted,
-                                fontSize: 13,
-                              ),
+                              style: TextStyle(color: _muted, fontSize: 13),
                             ),
                           ),
                           TextButton(
