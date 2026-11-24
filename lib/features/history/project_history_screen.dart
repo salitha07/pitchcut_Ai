@@ -6,24 +6,46 @@ import '../../models/performance_report.dart';
 import 'providers/history_providers.dart';
 
 class ProjectHistoryScreen extends ConsumerWidget {
-  const ProjectHistoryScreen({super.key, required this.project});
+  const ProjectHistoryScreen({
+    super.key,
+    required this.project,
+  });
 
   final Project project;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reportsAsync = ref.watch(reportsProvider(project.id));
+    final reportsAsync = ref.watch(
+      projectReportsProvider(project.id),
+    );
 
     return Scaffold(
-      appBar: AppBar(title: Text(project.title)),
+      appBar: AppBar(
+        title: Text(project.title),
+      ),
       body: reportsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) =>
-            Center(child: Text('Error loading reports: $error')),
+        loading: () => const Center(
+          child: CircularProgressIndicator(),
+        ),
+        error: (error, stack) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text('Could not load reports: $error'),
+          ),
+        ),
         data: (reports) {
           if (reports.isEmpty) {
-            return const Center(child: Text('No performance reports yet.'));
+            return const Center(
+              child: Text(
+                'No performance reports for this project yet.',
+              ),
+            );
           }
+
+          final sortedReports = reports.toList()
+            ..sort(
+              (a, b) => b.createdAt.compareTo(a.createdAt),
+            );
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -32,25 +54,41 @@ class ProjectHistoryScreen extends ConsumerWidget {
                 'Score over time',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
-              const SizedBox(height: 16),
-              _ScoreChart(reports: reports),
+              const SizedBox(height: 12),
+
+              _ScoreTrendChart(
+                reports: sortedReports,
+              ),
+
               const SizedBox(height: 24),
+
               Text(
-                'Previous Reports',
+                'Previous Reports (${sortedReports.length})',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 8),
-              ...reports.map(
+
+              ...sortedReports.map(
                 (report) => Card(
                   child: ListTile(
-                    leading: CircleAvatar(child: Text('${report.score}')),
-                    title: Text('Performance Score: ${report.score}/100'),
-                    subtitle: Text(_formatDate(report.createdAt)),
-                    trailing: const Icon(Icons.chevron_right),
+                    leading: CircleAvatar(
+                      child: Text('${report.score}'),
+                    ),
+                    title: Text(
+                      'Performance score: ${report.score}/100',
+                    ),
+                    subtitle: Text(
+                      _formatDate(report.createdAt),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                    ),
                     onTap: () {
                       Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => ReportDetailScreen(report: report),
+                        MaterialPageRoute<void>(
+                          builder: (_) => ReportDetailScreen(
+                            report: report,
+                          ),
                         ),
                       );
                     },
@@ -65,27 +103,167 @@ class ProjectHistoryScreen extends ConsumerWidget {
   }
 }
 
-class _ScoreChart extends StatelessWidget {
-  const _ScoreChart({required this.reports});
+// --------------------------------------------------
+// PERFORMANCE REPORT DETAILS
+// --------------------------------------------------
+
+class ReportDetailScreen extends StatelessWidget {
+  const ReportDetailScreen({
+    super.key,
+    required this.report,
+  });
+
+  final PerformanceReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Performance Report'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Center(
+            child: Column(
+              children: [
+                Text(
+                  'Overall Performance',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                CircleAvatar(
+                  radius: 54,
+                  backgroundColor: colorScheme.primaryContainer,
+                  child: Text(
+                    '${report.score}',
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text('Score out of 100'),
+                const SizedBox(height: 8),
+                Text(_formatDate(report.createdAt)),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 28),
+
+          Text(
+            'Performance Breakdown',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+
+          _scoreRow('Face Position', report.faceScore),
+          _scoreRow('Camera Stability', report.stabilityScore),
+          _scoreRow('Speaking Pace', report.paceScore),
+
+          const SizedBox(height: 20),
+
+          Text(
+            'Detected Pauses (${report.pauses.length})',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+
+          if (report.pauses.isEmpty)
+            const Text('No long pauses detected.')
+          else
+            ...report.pauses.map(
+              (pause) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.pause_circle_outline,
+                ),
+                title: Text(
+                  '${_formatTime(pause.startMs)} - '
+                  '${_formatTime(pause.endMs)}',
+                ),
+                subtitle: Text(
+                  'Duration: '
+                  '${(pause.durationMs / 1000).toStringAsFixed(1)} seconds'
+                  '${pause.clipIndex == null ? '' : ' • Clip ${pause.clipIndex! + 1}'}',
+                ),
+              ),
+            ),
+
+          const SizedBox(height: 20),
+
+          Text(
+            'Improvement Tips',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+
+          if (report.tips.isEmpty)
+            const Text('No improvement tips available.')
+          else
+            ...report.tips.map(
+              (tip) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.lightbulb_outline,
+                ),
+                title: Text(tip),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _scoreRow(String title, int? score) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(title),
+      trailing: Text(
+        score == null ? 'Unavailable' : '$score / 100',
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
+// --------------------------------------------------
+// SCORE TREND CHART
+// --------------------------------------------------
+
+class _ScoreTrendChart extends StatelessWidget {
+  const _ScoreTrendChart({
+    required this.reports,
+  });
 
   final List<PerformanceReport> reports;
 
   @override
   Widget build(BuildContext context) {
-    final chronologicalReports = reports.reversed.toList();
+    final chronological = reports.toList()
+      ..sort(
+        (a, b) => a.createdAt.compareTo(b.createdAt),
+      );
 
-    return SizedBox(
-      height: 190,
-      child: CustomPaint(
-        painter: _ScoreChartPainter(
-          scores: chronologicalReports
-              .map((report) => report.score.toDouble())
-              .toList(),
-          lineColor: Theme.of(context).colorScheme.primary,
-          gridColor: Theme.of(context).dividerColor,
-          textColor: Theme.of(context).colorScheme.onSurface,
+    final color = Theme.of(context).colorScheme.primary;
+    final gridColor = Theme.of(context).dividerColor;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: SizedBox(
+          height: 180,
+          width: double.infinity,
+          child: CustomPaint(
+            painter: _ScoreChartPainter(
+              reports: chronological,
+              lineColor: color,
+              gridColor: gridColor,
+            ),
+          ),
         ),
-        child: const SizedBox.expand(),
       ),
     );
   }
@@ -93,23 +271,25 @@ class _ScoreChart extends StatelessWidget {
 
 class _ScoreChartPainter extends CustomPainter {
   _ScoreChartPainter({
-    required this.scores,
+    required this.reports,
     required this.lineColor,
     required this.gridColor,
-    required this.textColor,
   });
 
-  final List<double> scores;
+  final List<PerformanceReport> reports;
   final Color lineColor;
   final Color gridColor;
-  final Color textColor;
 
   @override
   void paint(Canvas canvas, Size size) {
-    const left = 34.0;
+    if (reports.isEmpty || size.width <= 0 || size.height <= 0) {
+      return;
+    }
+
+    const left = 12.0;
     const right = 12.0;
     const top = 12.0;
-    const bottom = 25.0;
+    const bottom = 12.0;
 
     final chartWidth = size.width - left - right;
     final chartHeight = size.height - top - bottom;
@@ -118,165 +298,89 @@ class _ScoreChartPainter extends CustomPainter {
       ..color = gridColor
       ..strokeWidth = 1;
 
-    final textPainter = TextPainter(textDirection: TextDirection.ltr);
-
-    for (final value in [0, 25, 50, 75, 100]) {
-      final y = top + chartHeight * (1 - value / 100);
+    for (var i = 0; i <= 4; i++) {
+      final y = top + chartHeight * i / 4;
 
       canvas.drawLine(
         Offset(left, y),
         Offset(size.width - right, y),
         gridPaint,
       );
-
-      textPainter.text = TextSpan(
-        text: '$value',
-        style: TextStyle(color: textColor, fontSize: 10),
-      );
-      textPainter.layout();
-      textPainter.paint(canvas, Offset(0, y - textPainter.height / 2));
     }
-
-    if (scores.isEmpty) return;
 
     final linePaint = Paint()
       ..color = lineColor
-      ..strokeWidth = 2.5
+      ..strokeWidth = 3
       ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
     final pointPaint = Paint()
       ..color = lineColor
       ..style = PaintingStyle.fill;
 
-    final points = <Offset>[];
-
-    for (var i = 0; i < scores.length; i++) {
-      final x = scores.length == 1
+    Offset position(int index) {
+      final x = reports.length == 1
           ? left + chartWidth / 2
-          : left + chartWidth * i / (scores.length - 1);
+          : left + chartWidth * index / (reports.length - 1);
 
-      final score = scores[i].clamp(0.0, 100.0);
+      final score = reports[index].score.clamp(0, 100);
       final y = top + chartHeight * (1 - score / 100);
 
-      points.add(Offset(x, y));
+      return Offset(x, y);
     }
 
-    if (points.length > 1) {
-      final path = Path()..moveTo(points.first.dx, points.first.dy);
+    final path = Path()
+      ..moveTo(
+        position(0).dx,
+        position(0).dy,
+      );
 
-      for (final point in points.skip(1)) {
-        path.lineTo(point.dx, point.dy);
-      }
-
-      canvas.drawPath(path, linePaint);
+    for (var i = 1; i < reports.length; i++) {
+      final point = position(i);
+      path.lineTo(point.dx, point.dy);
     }
 
-    for (final point in points) {
-      canvas.drawCircle(point, 4, pointPaint);
+    canvas.drawPath(path, linePaint);
+
+    for (var i = 0; i < reports.length; i++) {
+      canvas.drawCircle(
+        position(i),
+        4,
+        pointPaint,
+      );
     }
   }
 
   @override
-  bool shouldRepaint(covariant _ScoreChartPainter oldDelegate) {
-    return oldDelegate.scores != scores ||
+  bool shouldRepaint(
+    covariant _ScoreChartPainter oldDelegate,
+  ) {
+    return oldDelegate.reports != reports ||
         oldDelegate.lineColor != lineColor ||
         oldDelegate.gridColor != gridColor;
   }
 }
 
-class ReportDetailScreen extends StatelessWidget {
-  const ReportDetailScreen({super.key, required this.report});
+// --------------------------------------------------
+// DATE AND TIME HELPERS
+// --------------------------------------------------
 
-  final PerformanceReport report;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Performance Report')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Center(
-            child: Text(
-              '${report.score}/100',
-              style: Theme.of(context).textTheme.headlineLarge,
-            ),
-          ),
-          const Center(child: Text('Overall Score')),
-          const SizedBox(height: 24),
-          _scoreRow('Face Score', report.faceScore),
-          _scoreRow('Stability Score', report.stabilityScore),
-          _scoreRow('Pace Score', report.paceScore),
-          const SizedBox(height: 24),
-          Text('Report Date', style: Theme.of(context).textTheme.titleMedium),
-          Text(_formatDate(report.createdAt)),
-          const SizedBox(height: 24),
-          Text(
-            'Tips for Improvement',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          if (report.tips.isEmpty)
-            const Text('No tips available.')
-          else
-            ...report.tips.map(
-              (tip) => ListTile(
-                leading: const Icon(Icons.lightbulb_outline),
-                title: Text(tip),
-              ),
-            ),
-          const SizedBox(height: 16),
-          Text(
-            'Detected Pauses (${report.pauses.length})',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          if (report.pauses.isEmpty)
-            const Text('No pauses detected.')
-          else
-            ...report.pauses.asMap().entries.map((entry) {
-              final index = entry.key;
-              final pause = entry.value;
-
-              return Card(
-                child: ListTile(
-                  leading: CircleAvatar(child: Text('${index + 1}')),
-                  title: Text('Start: ${_formatDuration(pause.startMs)}'),
-                  subtitle: Text(
-                    'End: ${_formatDuration(pause.endMs)}\n'
-                    'Duration: ${_formatDuration(pause.durationMs)}'
-                    '${pause.clipIndex != null ? '\nClip: ${pause.clipIndex! + 1}' : ''}',
-                  ),
-                  isThreeLine: true,
-                ),
-              );
-            }),
-        ],
-      ),
-    );
-  }
-
-  Widget _scoreRow(String label, int? score) {
-    return ListTile(
-      title: Text(label),
-      trailing: Text(score == null || score == -1 ? 'N/A' : '$score/100'),
-    );
-  }
-}
-
-String _formatDate(String iso) {
-  if (iso.length >= 10) {
-    return iso.substring(0, 10);
-  }
-  return iso;
-}
-
-String _formatDuration(int milliseconds) {
+String _formatTime(int milliseconds) {
   final totalSeconds = milliseconds ~/ 1000;
   final minutes = totalSeconds ~/ 60;
   final seconds = totalSeconds % 60;
-  final remainingMs = milliseconds % 1000;
 
-  return '$minutes:${seconds.toString().padLeft(2, '0')}.'
-      '${remainingMs.toString().padLeft(3, '0')}';
+  return '${minutes.toString().padLeft(2, '0')}:'
+      '${seconds.toString().padLeft(2, '0')}';
+}
+
+String _formatDate(String value) {
+  final date = DateTime.tryParse(value);
+
+  if (date == null) return value;
+
+  return '${date.day.toString().padLeft(2, '0')}/'
+      '${date.month.toString().padLeft(2, '0')}/'
+      '${date.year}';
 }

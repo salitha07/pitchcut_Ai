@@ -186,6 +186,7 @@ class FakeEditorEngine implements EditorEngine {
   @override
   Stream<ExportEvent> exportTimeline({
     required List<EditorTimelineItem> items,
+    List<Caption> captions = const [],
     required int targetHeight,
   }) {
     EditorEngine.validateTimelineExportRequest(
@@ -194,6 +195,15 @@ class FakeEditorEngine implements EditorEngine {
     );
     _recordCall('exportTimeline', {
       'items': items.map((item) => item.toMap()).toList(growable: false),
+      'captions': captions
+          .map(
+            (caption) => {
+              'startMs': caption.startMs,
+              'endMs': caption.endMs,
+              'text': caption.text,
+            },
+          )
+          .toList(growable: false),
       'targetHeight': targetHeight,
     });
     return _createExportStream(

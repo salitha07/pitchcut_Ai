@@ -75,6 +75,7 @@ void main() {
       expect(calls, hasLength(1));
       expect(calls.single.method, 'exportTimeline');
       expect(calls.single.arguments, {
+        'captions': [],
         'targetHeight': 480,
         'items': [
           {

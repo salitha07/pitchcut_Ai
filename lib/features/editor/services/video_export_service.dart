@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../models/caption.dart' as m7;
 import '../engine/editor_engine.dart';
 import '../engine/method_channel_editor_engine.dart';
 import '../models/crop_rect.dart';
@@ -23,6 +24,7 @@ class VideoExportService implements VideoExportBackend {
   Future<String> exportTimeline(
     List<VideoClip> clips,
     VideoExportQuality quality, {
+    List<m7.Caption> captions = const [],
     required ExportProgressCallback onProgress,
   }) async {
     if (clips.isEmpty) throw ArgumentError('There are no clips to export.');
@@ -46,6 +48,7 @@ class VideoExportService implements VideoExportBackend {
       String? outputPath;
       await for (final event in _engine.exportTimeline(
         items: items,
+        captions: captions,
         targetHeight: quality.height,
       )) {
         onProgress(event.progress);

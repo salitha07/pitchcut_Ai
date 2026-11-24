@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:video_player/video_player.dart';
 
+import '../../models/caption.dart' as m7;
 import 'models/trim_range.dart';
 import 'models/video_clip.dart';
 import 'models/video_export_state.dart';
@@ -23,6 +24,7 @@ class VideoExportScreen extends StatefulWidget {
     this.selectedClipIndex = 0,
     this.trimRange = const TrimRange(start: Duration.zero, end: Duration.zero),
     this.backend,
+    this.captions = const [],
   });
 
   final List<VideoClip> clips;
@@ -33,6 +35,7 @@ class VideoExportScreen extends StatefulWidget {
   final int selectedClipIndex;
   final TrimRange trimRange;
   final VideoExportBackend? backend;
+  final List<m7.Caption> captions;
 
   @override
   State<VideoExportScreen> createState() => _VideoExportScreenState();
@@ -42,6 +45,7 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
   late final VideoExportController _exportController;
   VideoExportQuality _quality = VideoExportQuality.p720;
   bool _openingSuccess = false;
+  bool _burnCaptions = true;
   bool _savingExport = false;
   String? _saveError;
   final EditorProjectStore _projectStore = EditorProjectStore();
@@ -124,6 +128,9 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
     );
   }
 
+  List<m7.Caption> get _captionsForExport =>
+      _burnCaptions ? widget.captions : const [];
+
   double get _estimatedMegabytes {
     final bitsPerSecond = _quality.videoBitrate + 128000;
     return widget.duration.inSeconds * bitsPerSecond / 8 / (1024 * 1024);
@@ -204,6 +211,19 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
                     : (value) => setState(() => _quality = value.first),
               ),
               const SizedBox(height: 12),
+              if (widget.captions.isNotEmpty)
+                SwitchListTile(
+                  key: const ValueKey('burn-captions-toggle'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Burn captions into export'),
+                  subtitle: Text(
+                    '${widget.captions.length} captions will be included in the video',
+                  ),
+                  value: _burnCaptions,
+                  onChanged: isBusy
+                      ? null
+                      : (value) => setState(() => _burnCaptions = value),
+                ),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -218,7 +238,7 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
                       _InfoRow(
                         label: 'Resolution target',
                         value:
-                            '$outputWidth × ${_quality.height} (${_quality.label})',
+                            '$outputWidth \u00D7 ${_quality.height} (${_quality.label})',
                       ),
                       const _InfoRow(label: 'Format', value: 'MP4'),
                       const _InfoRow(
@@ -245,9 +265,9 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
                 const SizedBox(height: 8),
                 Text(
                   state.status == VideoExportStatus.cancelling
-                      ? 'Cancelling export…'
+                      ? 'Cancelling exportÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦'
                       : state.progress == null
-                      ? 'Preparing export…'
+                      ? 'Preparing exportÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦'
                       : '${(state.progress! * 100).round()}% exported',
                   textAlign: TextAlign.center,
                 ),
@@ -278,8 +298,11 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
                 ),
                 const SizedBox(height: 12),
                 FilledButton.icon(
-                  onPressed: () =>
-                      _exportController.start(widget.clips, _quality),
+                  onPressed: () => _exportController.start(
+                    widget.clips,
+                    _quality,
+                    captions: _captionsForExport,
+                  ),
                   icon: const Icon(Icons.refresh),
                   label: const Text('Try again'),
                 ),
@@ -287,8 +310,11 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
                 const Text('Export cancelled. No output was kept.'),
                 const SizedBox(height: 12),
                 FilledButton.icon(
-                  onPressed: () =>
-                      _exportController.start(widget.clips, _quality),
+                  onPressed: () => _exportController.start(
+                    widget.clips,
+                    _quality,
+                    captions: _captionsForExport,
+                  ),
                   icon: const Icon(Icons.refresh),
                   label: const Text('Export again'),
                 ),
@@ -296,7 +322,7 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
                   _savingExport) ...[
                 const LinearProgressIndicator(),
                 const SizedBox(height: 8),
-                const Text('Saving verified video to project…'),
+                const Text('Saving verified video to projectÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦'),
               ] else if (state.status == VideoExportStatus.succeeded &&
                   _saveError != null) ...[
                 Text(
@@ -313,7 +339,11 @@ class _VideoExportScreenState extends State<VideoExportScreen> {
                   key: const ValueKey('start-video-export'),
                   onPressed: widget.clips.isEmpty
                       ? null
-                      : () => _exportController.start(widget.clips, _quality),
+                      : () => _exportController.start(
+                          widget.clips,
+                          _quality,
+                          captions: _captionsForExport,
+                        ),
                   icon: const Icon(Icons.file_upload_outlined),
                   label: const Text('Start export'),
                 ),
@@ -361,7 +391,9 @@ class VideoExportSuccessScreen extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
-            Text('${quality.label} · MP4 · ${_durationText(duration)}'),
+            Text(
+              '${quality.label} Ãƒâ€šÃ‚Â· MP4 Ãƒâ€šÃ‚Â· ${_durationText(duration)}',
+            ),
             const SizedBox(height: 8),
             if (savedToProject) ...[
               const SizedBox(height: 8),

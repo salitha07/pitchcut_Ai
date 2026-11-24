@@ -560,6 +560,7 @@ void main() {
             'rotationDegrees': 0,
           },
         ],
+        'captions': [],
         'targetHeight': 1080,
       });
       expect(events.last.outputPath, contains('clip.mp4'));

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../models/caption.dart';
 import '../models/video_clip.dart';
 import '../models/video_export_state.dart';
 
@@ -11,6 +12,7 @@ abstract class VideoExportBackend {
   Future<String> exportTimeline(
     List<VideoClip> clips,
     VideoExportQuality quality, {
+    List<Caption> captions = const [],
     required ExportProgressCallback onProgress,
   });
 
@@ -32,7 +34,11 @@ class VideoExportController extends ChangeNotifier {
   VideoExportState get state => _state;
   bool _cancelRequested = false;
 
-  Future<void> start(List<VideoClip> clips, VideoExportQuality quality) async {
+  Future<void> start(
+    List<VideoClip> clips,
+    VideoExportQuality quality, {
+    List<Caption> captions = const [],
+  }) async {
     if (_state.isBusy || clips.isEmpty) return;
     _cancelRequested = false;
     String? outputPath;
@@ -41,6 +47,7 @@ class VideoExportController extends ChangeNotifier {
       final path = await backend.exportTimeline(
         List.unmodifiable(clips),
         quality,
+        captions: captions,
         onProgress: (progress) {
           if (_cancelRequested ||
               _state.status != VideoExportStatus.exporting) {

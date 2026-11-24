@@ -188,6 +188,7 @@ class MethodChannelEditorEngine implements EditorEngine {
   @override
   Stream<ExportEvent> exportTimeline({
     required List<EditorTimelineItem> items,
+    List<Caption> captions = const [],
     required int targetHeight,
   }) {
     EditorEngine.validateTimelineExportRequest(
@@ -195,8 +196,19 @@ class MethodChannelEditorEngine implements EditorEngine {
       targetHeight: targetHeight,
     );
 
+    final serializedCaptions = captions
+        .map(
+          (caption) => {
+            'startMs': caption.startMs,
+            'endMs': caption.endMs,
+            'text': caption.text,
+          },
+        )
+        .toList(growable: false);
+
     return _exportStream('exportTimeline', {
       'items': items.map((item) => item.toMap()).toList(growable: false),
+      'captions': serializedCaptions,
       'targetHeight': targetHeight,
     });
   }
