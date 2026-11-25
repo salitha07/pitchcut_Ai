@@ -1,4 +1,5 @@
-﻿import 'dart:io';
+﻿
+import 'dart:io';
 
 import 'package:whisper_wrapper/whisper_wrapper.dart';
 
@@ -160,9 +161,23 @@ class AutoCaptionService {
         captions.add(
           Caption(
             id: 'auto_${DateTime.now().microsecondsSinceEpoch}_${captions.length}',
-            startMs: (timelineOffsetMs + clippedStartMs - sourceStartMs).toInt(),
-            endMs: (timelineOffsetMs + clippedEndMs - sourceStartMs).toInt(),
+            startMs: (
+              timelineOffsetMs +
+              clippedStartMs -
+              sourceStartMs
+            ).toInt(),
+            endMs: (
+              timelineOffsetMs +
+              clippedEndMs -
+              sourceStartMs
+            ).toInt(),
             text: text,
+
+            // Preserve the original source video identity.
+            sourceClipId: source.id,
+
+            // Preserve the caption's timestamp in the original video.
+            sourceStartMs: clippedStartMs,
           ),
         );
       }
@@ -178,4 +193,3 @@ class AutoCaptionService {
     return captions;
   }
 }
-
