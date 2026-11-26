@@ -47,6 +47,7 @@ class EditorMethodHandler(
                 "rotate" -> handleRotate(call, guardedResult)
                 "crop" -> handleCrop(call, guardedResult)
                 "export" -> handleExport(call, guardedResult)
+                "exportTimeline" -> handleExportTimeline(call, guardedResult)
                 "cancelExport" -> handleCancelExport(guardedResult)
                 "getLoudnessSamples" -> handleGetLoudnessSamples(call, guardedResult)
                 else -> guardedResult.notImplemented()
@@ -142,6 +143,20 @@ class EditorMethodHandler(
                     ErrorCodes.sendMethodError(result, errorCode, message, ErrorCodes.all)
             }
         )
+    }
+
+    private fun handleExportTimeline(call: MethodCall, result: MethodChannel.Result) {
+        val request = try {
+            TimelineExportRequest.parse(call.arguments)
+        } catch (error: TimelineExportException) {
+            ErrorCodes.sendMethodError(result, error.code, error.message ?: error.code)
+            return
+        }
+        exportService.exportTimeline(request, eventSink, object : ExportService.Callback {
+            override fun onSuccess(outputPath: String) = result.success(outputPath)
+            override fun onError(errorCode: String, message: String) =
+                ErrorCodes.sendMethodError(result, errorCode, message, ErrorCodes.all)
+        })
     }
 
     private fun handleCancelExport(result: MethodChannel.Result) {

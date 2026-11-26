@@ -180,6 +180,42 @@ class FakeEditorEngine implements EditorEngine {
       'targetHeight': targetHeight,
     });
 
+    return _createExportStream('export', clipPaths);
+  }
+
+  @override
+  Stream<ExportEvent> exportTimeline({
+    required List<EditorTimelineItem> items,
+    List<Caption> captions = const [],
+    required int targetHeight,
+  }) {
+    EditorEngine.validateTimelineExportRequest(
+      items: items,
+      targetHeight: targetHeight,
+    );
+    _recordCall('exportTimeline', {
+      'items': items.map((item) => item.toMap()).toList(growable: false),
+      'captions': captions
+          .map(
+            (caption) => {
+              'startMs': caption.startMs,
+              'endMs': caption.endMs,
+              'text': caption.text,
+            },
+          )
+          .toList(growable: false),
+      'targetHeight': targetHeight,
+    });
+    return _createExportStream(
+      'exportTimeline',
+      items.map((item) => item.path).toList(growable: false),
+    );
+  }
+
+  Stream<ExportEvent> _createExportStream(
+    String methodName,
+    List<String> clipPaths,
+  ) {
     late final StreamController<ExportEvent> controller;
     Timer? stepTimer;
     int stepIndex = 0;
@@ -220,13 +256,13 @@ class FakeEditorEngine implements EditorEngine {
 
     controller = StreamController<ExportEvent>(
       onListen: () {
-        final error = simulatedMethodErrors['export'] ?? simulatedErrorCode;
+        final error = simulatedMethodErrors[methodName] ?? simulatedErrorCode;
         if (error != null) {
           controller.addError(
             PlatformException(
               code: _normalizeErrorCode(error),
               message:
-                  'Simulated failure for export: ${_normalizeErrorCode(error)}',
+                  'Simulated failure for $methodName: ${_normalizeErrorCode(error)}',
             ),
           );
           controller.close();

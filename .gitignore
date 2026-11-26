@@ -31,6 +31,7 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+/android/build/
 /coverage/
 
 # Symbolication related
@@ -47,6 +48,3 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
-/android/build/
-pitchcut_Ai/
-pitchcut_Ai_new/

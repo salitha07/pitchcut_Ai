@@ -200,10 +200,7 @@ class LoudnessService(private val context: Context) {
                         val pcmEncoding = if (outputFormat.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
                             outputFormat.getInteger(MediaFormat.KEY_PCM_ENCODING)
                         } else {
-                            throw LoudnessFailure(
-                                ErrorCodes.UNSUPPORTED_FORMAT,
-                                "Decoder output format did not specify its PCM encoding"
-                            )
+                            AudioFormat.ENCODING_PCM_16BIT
                         }
                         if (pcmEncoding != AudioFormat.ENCODING_PCM_16BIT) {
                             throw LoudnessFailure(
