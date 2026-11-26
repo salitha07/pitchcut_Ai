@@ -29,7 +29,6 @@ dependencies:
   google_sign_in: ^7.2.0
   flutter_facebook_auth: ^7.3.3
 
-
   # Video and Camera
   camera: ^0.12.1
   video_player: ^2.14.1
@@ -44,7 +43,6 @@ dependencies:
   uuid: ^4.6.0
   sensors_plus: ^7.1.1
   google_mlkit_face_detection: ^1.0.2
-  material_ui: any
   whisper_wrapper: 3.0.3
   shared_preferences: ^2.5.6
   package_info_plus: ^10.2.2
@@ -57,6 +55,11 @@ dev_dependencies:
     sdk: flutter
 
   flutter_lints: ^6.0.0
+
+  # App Icon Generation
+  flutter_launcher_icons: ^0.14.4
+
+  # Testing
   fake_cloud_firestore: ^4.3.0
   firebase_auth_mocks: ^0.15.2
   mocktail: ^1.0.5
@@ -65,5 +68,15 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  # Application assets
   assets:
     - assets/images/features/
+
+# App Icon Configuration
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_background: "#080B18"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+  remove_alpha_ios: true
