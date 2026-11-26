@@ -99,7 +99,7 @@ internal class CaptionBitmapOverlay(
             text
         } else {
             val end = text.offsetByCodePoints(0, maxCaptionCodePoints - 1)
-            text.substring(0, end) + "…"
+            text.substring(0, end) + "\u2026"
         }
         val initialLayout = createCaptionLayout(boundedText, textPaint, maxTextWidth)
         val contentWidth = (0 until initialLayout.lineCount)
@@ -108,7 +108,8 @@ internal class CaptionBitmapOverlay(
         val textLayoutWidth = ceil(contentWidth).toInt().coerceIn(1, maxTextWidth)
         val layout = createCaptionLayout(boundedText, textPaint, textLayoutWidth)
         val bitmapWidth = ceil(layout.width + horizontalPadding * 2f)
-            .toInt().coerceIn(1, maxBoxWidth)        val bitmapHeight = ceil(layout.height + verticalPadding * 2f).toInt().coerceAtLeast(1)
+            .toInt().coerceIn(1, maxBoxWidth)
+        val bitmapHeight = ceil(layout.height + verticalPadding * 2f).toInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -153,12 +154,12 @@ internal class CaptionBitmapOverlay(
         if (layout.lineCount <= maxLines) return layout
         candidate = candidate.substring(0, layout.getLineEnd(maxLines - 1)).trimEnd()
         while (candidate.isNotEmpty()) {
-            val truncated = legacyLayout("$candidate…")
+            val truncated = legacyLayout("$candidate\u2026")
             if (truncated.lineCount <= maxLines) return truncated
             val previousCodePoint = Character.offsetByCodePoints(candidate, candidate.length, -1)
             candidate = candidate.substring(0, previousCodePoint).trimEnd()
         }
-        return legacyLayout("…")
+        return legacyLayout("\u2026")
     }
 
     private fun recycleBitmapsLocked() {
