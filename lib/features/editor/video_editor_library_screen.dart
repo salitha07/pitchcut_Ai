@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:camera/camera.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart' as material;
 
 import '../../models/clip.dart';
 import '../../models/caption.dart' as m7;
@@ -12,8 +13,9 @@ import '../../providers/repository_providers.dart';
 import 'services/editor_project_store.dart';
 import 'services/m5_project_library_service.dart';
 import 'services/m5_video_import_service.dart';
-import 'services/project_clip_adapter.dart';
 import 'services/video_trim_service.dart';
+import 'services/project_clip_adapter.dart';
+
 import 'video_editor_screen.dart';
 
 class VideoEditorLibraryScreen extends ConsumerStatefulWidget {
@@ -316,94 +318,364 @@ class _VideoEditorLibraryScreenState
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Widget _sectionHeading(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    Widget? trailing,
+  }) {
+    final text = Theme.of(context).textTheme;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                style: text.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (trailing != null) trailing,
+      ],
+    );
+  }
+
+  Widget _emptyProjects(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 34, color: scheme.onSurfaceVariant),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSharedProjects() => FutureBuilder<List<Project>>(
     future: _sharedProjects,
     builder: (context, snapshot) {
       if (snapshot.connectionState == ConnectionState.waiting) {
         return const Padding(
-          padding: EdgeInsets.symmetric(vertical: 12),
+          padding: EdgeInsets.symmetric(vertical: 24),
           child: Center(child: CircularProgressIndicator()),
         );
       }
+
       if (snapshot.hasError) {
-        return ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Could not load M2 projects'),
-          subtitle: Text('${snapshot.error}'),
-          trailing: IconButton(
-            tooltip: 'Retry loading projects',
-            onPressed: _reloadSharedProjects,
-            icon: const Icon(Icons.refresh),
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.error_outline_rounded),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Could not load app projects. Please try again.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Retry loading projects',
+                onPressed: _reloadSharedProjects,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
           ),
         );
       }
+
       final projects = snapshot.data ?? const <Project>[];
       if (projects.isEmpty) {
-        return const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text('Projects saved by the app will appear here.'),
+        return _emptyProjects(
+          context,
+          icon: Icons.folder_open_rounded,
+          title: 'No app projects yet',
+          message: 'Projects created in PitchCut will appear here.',
         );
       }
+
       return Column(
         children: [
-          for (final project in projects)
+          for (final project in projects) ...[
             Card(
+              margin: EdgeInsets.zero,
+              elevation: 0,
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              clipBehavior: material.Clip.antiAlias,
               child: ListTile(
-                leading: const Icon(Icons.folder_outlined),
-                title: Text(project.title),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 7,
+                ),
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: const Icon(
+                    Icons.folder_copy_rounded,
+                    color: Colors.blue,
+                  ),
+                ),
+                title: Text(
+                  project.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
                 subtitle: Text('${project.clipIds.length} source clip(s)'),
                 trailing: _openingProjectId == project.id
                     ? const SizedBox.square(
                         dimension: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.chevron_right),
+                    : const Icon(Icons.chevron_right_rounded),
                 enabled: _openingProjectId == null,
                 onTap: () => _openSharedProject(project),
               ),
             ),
+            const SizedBox(height: 10),
+          ],
         ],
       );
     },
   );
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Video Editor')),
-    body: ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        FilledButton.icon(
-          onPressed: _importingVideo ? null : _openVideo,
-          icon: const Icon(Icons.video_library_outlined),
-          label: Text(_importingVideo ? 'Importing video…' : 'Open a video'),
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Video Editor',
+          style: TextStyle(fontWeight: FontWeight.w800),
         ),
-        const SizedBox(height: 24),
-        Text('M2 Projects', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
-        _buildSharedProjects(),
-        const SizedBox(height: 20),
-        Text(
-          'Saved editor projects',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 8),
-        if (_loading)
-          const Center(child: CircularProgressIndicator())
-        else if (_projectIds.isEmpty)
-          const Text('Projects you edit will appear here.')
-        else
-          for (final projectId in _projectIds)
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.video_file_outlined),
-                title: Text(projectId.replaceAll('\\', '/').split('/').last),
-                subtitle: const Text('Tap to continue editing'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _openSavedProject(projectId),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh projects',
+            onPressed: _refreshProjectLists,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          children: [
+            Text(
+              'Make every second count.',
+              style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Choose a video to start editing or continue where you left off.',
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 22),
+
+            // Main import action, styled to match the PitchCut home screen.
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF5B45C6), Color(0xFF342477)],
+                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF5B45C6).withValues(alpha: 0.20),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: const Icon(
+                      Icons.video_library_rounded,
+                      color: Colors.white,
+                      size: 26,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Start a new edit',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Import a video and trim, arrange, and improve your clips.',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.82),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFF4935A5),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      onPressed: _importingVideo ? null : _openVideo,
+                      icon: _importingVideo
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.add_rounded),
+                      label: Text(
+                        _importingVideo ? 'Importing video…' : 'Import video',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-      ],
-    ),
-  );
+            const SizedBox(height: 30),
+
+            _sectionHeading(
+              context,
+              title: 'My projects',
+              subtitle: 'Projects created in PitchCut',
+            ),
+            const SizedBox(height: 14),
+            _buildSharedProjects(),
+            const SizedBox(height: 26),
+
+            _sectionHeading(
+              context,
+              title: 'Continue editing',
+              subtitle: 'Your saved editor timelines',
+              trailing: IconButton(
+                tooltip: 'Refresh saved projects',
+                onPressed: _refreshProjects,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_projectIds.isEmpty)
+              _emptyProjects(
+                context,
+                icon: Icons.video_library_outlined,
+                title: 'Nothing to continue yet',
+                message: 'Videos you start editing will be saved here.',
+              )
+            else
+              for (final projectId in _projectIds) ...[
+                Card(
+                  margin: EdgeInsets.zero,
+                  elevation: 0,
+                  color: scheme.surfaceContainerLow,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  clipBehavior: material.Clip.antiAlias,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 7,
+                    ),
+                    leading: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: const Icon(
+                        Icons.video_file_rounded,
+                        color: Colors.deepPurple,
+                      ),
+                    ),
+                    title: Text(
+                      projectId.replaceAll('\\', '/').split('/').last,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: const Text('Tap to continue editing'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => _openSavedProject(projectId),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
 }

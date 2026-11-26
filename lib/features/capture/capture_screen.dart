@@ -55,12 +55,30 @@ class _CaptureScreenState extends State<CaptureScreen>
   final Stopwatch _stopwatch = Stopwatch();
   Duration _recordingDuration = Duration.zero;
 
+  // ==========================================
+  // THEME COLORS
+  // ==========================================
+
+  static const Color _backgroundColor = Color(0xFF10111D);
+  static const Color _surfaceColor = Color(0xFF1B1D2D);
+  static const Color _cardColor = Color(0xFF24263A);
+  static const Color _accentColor = Color(0xFF8B7CFF);
+  static const Color _recordColor = Color(0xFFFF5364);
+  static const Color _successColor = Color(0xFF43D9A3);
+  static const Color _textColor = Color(0xFFF5F5FA);
+  static const Color _mutedColor = Color(0xFF9A9CAF);
+
   bool get _isAndroid =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  // ==========================================
+  // INITIALIZATION
+  // ==========================================
 
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addObserver(this);
     unawaited(_initializeCamera());
   }
@@ -73,32 +91,25 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (error is CameraException) {
       switch (error.code) {
         case 'CameraAccessDenied':
-          return 'Camera permission denied. '
-              'Allow camera access and retry.';
+          return 'Camera permission denied. Allow camera access and retry.';
 
         case 'CameraAccessDeniedWithoutPrompt':
-          return 'Camera permission blocked. '
-              'Enable it in device settings.';
+          return 'Camera permission blocked. Enable it in device settings.';
 
         case 'CameraAccessRestricted':
-          return 'Camera access is restricted '
-              'on this device.';
+          return 'Camera access is restricted on this device.';
 
         case 'AudioAccessDenied':
-          return 'Microphone permission denied. '
-              'Allow microphone access.';
+          return 'Microphone permission denied. Allow microphone access.';
 
         case 'AudioAccessDeniedWithoutPrompt':
-          return 'Microphone permission blocked. '
-              'Enable it in device settings.';
+          return 'Microphone permission blocked. Enable it in device settings.';
 
         case 'AudioAccessRestricted':
-          return 'Microphone access is restricted '
-              'on this device.';
+          return 'Microphone access is restricted on this device.';
 
         default:
-          return 'Camera error: '
-              '${error.description ?? error.code}';
+          return 'Camera error: ${error.description ?? error.code}';
       }
     }
 
@@ -637,17 +648,14 @@ class _CaptureScreenState extends State<CaptureScreen>
         if (mounted && interrupted) {
           setState(() {
             _error =
-                'Recording stopped when the app went '
-                'into the background. Review and save '
-                'the video.';
+                'Recording stopped when the app went into '
+                'the background. Review and save the video.';
           });
         }
       } catch (e) {
         if (mounted) {
           setState(() {
-            _error =
-                'Video captured, but preview '
-                'could not open: $e';
+            _error = 'Video captured, but preview could not open: $e';
           });
         }
       }
@@ -675,10 +683,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (kIsWeb) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Permanent project saving '
-            'currently requires Android.',
-          ),
+          content: Text('Permanent project saving currently requires Android.'),
         ),
       );
       return;
@@ -690,10 +695,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (player == null || !player.value.isInitialized) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Video preview or metadata '
-            'is not ready.',
-          ),
+          content: Text('Video preview or metadata is not ready.'),
         ),
       );
       return;
@@ -785,10 +787,7 @@ class _CaptureScreenState extends State<CaptureScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Project "${project.title}" '
-              'saved successfully!',
-            ),
+            content: Text('Project "${project.title}" saved successfully!'),
           ),
         );
       }
@@ -984,9 +983,8 @@ class _CaptureScreenState extends State<CaptureScreen>
         if (mounted) {
           setState(() {
             _error =
-                'Recording stopped because the app '
-                'entered the background. '
-                'Review and save it.';
+                'Recording stopped because the app entered '
+                'the background. Review and save it.';
             _loading = false;
           });
         }
@@ -994,12 +992,11 @@ class _CaptureScreenState extends State<CaptureScreen>
         if (mounted) {
           setState(() {
             _loading = false;
-            _error =
-                'Video captured, but '
-                'preview failed: $e';
+            _error = 'Video captured, but preview failed: $e';
           });
         }
       }
+
       return;
     }
 
@@ -1051,31 +1048,81 @@ class _CaptureScreenState extends State<CaptureScreen>
     final player = _videoController;
 
     if (player == null || !player.value.isInitialized) {
-      return const Center(child: Text('Video preview unavailable'));
+      return const Center(
+        child: CircularProgressIndicator(color: _accentColor),
+      );
     }
 
     return Column(
       children: [
         Expanded(
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: player.value.aspectRatio,
-              child: VideoPlayer(player),
+          child: Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: _cardColor),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                AspectRatio(
+                  aspectRatio: player.value.aspectRatio,
+                  child: VideoPlayer(player),
+                ),
+                GestureDetector(
+                  onTap: _togglePlayback,
+                  child: Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      player.value.isPlaying
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 36,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 16,
+                  left: 16,
+                  child: _statusBadge(
+                    _isImportedVideo ? 'IMPORTED VIDEO' : 'RECORDED VIDEO',
+                    _successColor,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        ElevatedButton.icon(
-          onPressed: _savingProject ? null : _togglePlayback,
-          icon: Icon(player.value.isPlaying ? Icons.pause : Icons.play_arrow),
-          label: Text(player.value.isPlaying ? 'Pause Video' : 'Play Video'),
+        const Text(
+          'Your video is ready!',
+          style: TextStyle(
+            color: _textColor,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
         ),
+        const SizedBox(height: 6),
+        const Text(
+          'Review your recording before saving it as a project.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: _mutedColor, fontSize: 13),
+        ),
+        const SizedBox(height: 12),
       ],
     );
   }
 
   // ==========================================
-  // CAMERA PREVIEW - BOXFIT.COVER FIX
+  // CAMERA PREVIEW
   // ==========================================
 
   Widget _buildCameraPreview(CameraController camera) {
@@ -1086,12 +1133,11 @@ class _CaptureScreenState extends State<CaptureScreen>
         if (previewSize == null ||
             constraints.maxWidth <= 0 ||
             constraints.maxHeight <= 0) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(
+            child: CircularProgressIndicator(color: _accentColor),
+          );
         }
 
-        // Camera preview sizes are commonly reported
-        // in the camera sensor's landscape orientation.
-        // Swap the dimensions for the portrait UI.
         final isPortrait =
             MediaQuery.orientationOf(context) == Orientation.portrait;
 
@@ -1103,11 +1149,13 @@ class _CaptureScreenState extends State<CaptureScreen>
             ? previewSize.width
             : previewSize.height;
 
-        return ClipRect(
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(24),
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Positioned.fill(
+              ColoredBox(
+                color: Colors.black,
                 child: FittedBox(
                   fit: BoxFit.cover,
                   alignment: Alignment.center,
@@ -1124,21 +1172,98 @@ class _CaptureScreenState extends State<CaptureScreen>
                   child: IgnorePointer(child: FramingGuide()),
                 ),
 
-              if (_isCountingDown)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: ColoredBox(
-                      color: Colors.black38,
-                      child: Center(
-                        child: Text(
-                          '$_countdownRemaining',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 90,
-                            fontWeight: FontWeight.bold,
+              // Camera status
+              Positioned(
+                top: 14,
+                left: 14,
+                child: _statusBadge(
+                  _isRecording ? 'RECORDING' : 'CAMERA READY',
+                  _isRecording ? _recordColor : _successColor,
+                ),
+              ),
+
+              // Recording timer
+              if (_isRecording)
+                Positioned(
+                  top: 14,
+                  right: 14,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: _recordColor,
+                            shape: BoxShape.circle,
                           ),
                         ),
+                        const SizedBox(width: 7),
+                        Text(
+                          _formatDuration(_recordingDuration),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // Countdown overlay
+              if (_isCountingDown)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    child: Center(
+                      child: Text(
+                        '$_countdownRemaining',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 100,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
+                    ),
+                  ),
+                ),
+
+              // Framing information
+              if (_showFramingGuide && !_isRecording && !_isCountingDown)
+                Positioned(
+                  bottom: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.center_focus_strong_rounded,
+                          color: _successColor,
+                          size: 16,
+                        ),
+                        SizedBox(width: 7),
+                        Text(
+                          'Position yourself in the frame',
+                          style: TextStyle(color: Colors.white, fontSize: 11),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -1146,6 +1271,81 @@ class _CaptureScreenState extends State<CaptureScreen>
           ),
         );
       },
+    );
+  }
+
+  // ==========================================
+  // STATUS BADGE
+  // ==========================================
+
+  Widget _statusBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // CAMERA OPTION BUTTON
+  // ==========================================
+
+  Widget _cameraOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          decoration: BoxDecoration(
+            color: _cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: enabled ? _textColor : _mutedColor, size: 23),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: enabled ? _textColor : _mutedColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1158,105 +1358,209 @@ class _CaptureScreenState extends State<CaptureScreen>
       children: [
         Expanded(child: _buildCameraPreview(camera)),
 
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
 
-        if (_isRecording)
-          Text(
-            'REC ${_formatDuration(_recordingDuration)}',
-            style: const TextStyle(
-              color: Colors.red,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
+        // Countdown selector
+        if (!_isRecording && !_isCountingDown) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: _surfaceColor,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.timer_outlined, color: _accentColor, size: 21),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Countdown',
+                    style: TextStyle(
+                      color: _textColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                DropdownButton<int>(
+                  value: _selectedCountdown,
+                  dropdownColor: _cardColor,
+                  underline: const SizedBox(),
+                  style: const TextStyle(
+                    color: _textColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 0, child: Text('Off')),
+                    DropdownMenuItem(value: 3, child: Text('3 sec')),
+                    DropdownMenuItem(value: 5, child: Text('5 sec')),
+                    DropdownMenuItem(value: 10, child: Text('10 sec')),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (value) {
+                          if (value != null) {
+                            setState(() {
+                              _selectedCountdown = value;
+                            });
+                          }
+                        },
+                ),
+              ],
             ),
           ),
 
-        if (_isCountingDown)
-          Text(
-            'Recording starts in '
-            '$_countdownRemaining...',
-          ),
+          const SizedBox(height: 8),
 
-        const SizedBox(height: 8),
-
-        if (!_isRecording && !_isCountingDown)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('Countdown: '),
-              DropdownButton<int>(
-                value: _selectedCountdown,
-                items: const [
-                  DropdownMenuItem(value: 0, child: Text('Off')),
-                  DropdownMenuItem(value: 3, child: Text('3s')),
-                  DropdownMenuItem(value: 5, child: Text('5s')),
-                  DropdownMenuItem(value: 10, child: Text('10s')),
-                ],
-                onChanged: _busy
-                    ? null
-                    : (value) {
-                        if (value != null) {
-                          setState(() {
-                            _selectedCountdown = value;
-                          });
-                        }
-                      },
+          // Face framing switch
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: _surfaceColor,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.face, color: _accentColor),
+              title: const Text(
+                'Face Framing Guide',
+                style: TextStyle(
+                  color: _textColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ],
+              subtitle: const Text(
+                'Keep yourself properly positioned',
+                style: TextStyle(color: _mutedColor, fontSize: 11),
+              ),
+              value: _showFramingGuide,
+              activeThumbColor: _accentColor,
+              onChanged: _busy
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _showFramingGuide = value;
+                      });
+                    },
+            ),
           ),
+        ],
 
-        if (!_isRecording && !_isCountingDown)
-          SwitchListTile(
-            dense: true,
-            title: const Text('Face Framing Guide'),
-            value: _showFramingGuide,
-            onChanged: _busy
-                ? null
-                : (value) {
-                    setState(() {
-                      _showFramingGuide = value;
-                    });
-                  },
+        // Recording status
+        if (_isRecording) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Recording in progress',
+            style: TextStyle(
+              color: _recordColor,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
           ),
+        ],
 
-        const SizedBox(height: 8),
+        if (_isCountingDown) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Recording starts in $_countdownRemaining seconds',
+            style: const TextStyle(
+              color: _accentColor,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
 
+        const SizedBox(height: 16),
+
+        // Main recording button
         if (_busy)
-          const CircularProgressIndicator()
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: CircularProgressIndicator(color: _accentColor),
+          )
         else if (_isCountingDown)
-          ElevatedButton.icon(
+          OutlinedButton.icon(
             onPressed: _cancelCountdown,
-            icon: const Icon(Icons.close),
+            icon: const Icon(Icons.close_rounded),
             label: const Text('Cancel Countdown'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _textColor,
+              side: const BorderSide(color: _recordColor),
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
           )
         else
-          ElevatedButton.icon(
-            onPressed: _isRecording ? _stopRecording : _startCountdown,
-            icon: Icon(_isRecording ? Icons.stop : Icons.fiber_manual_record),
-            label: Text(_isRecording ? 'Stop Recording' : 'Start Recording'),
+          GestureDetector(
+            onTap: _isRecording ? _stopRecording : _startCountdown,
+            child: Column(
+              children: [
+                Container(
+                  width: 76,
+                  height: 76,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: _isRecording ? _recordColor : Colors.white,
+                      width: 4,
+                    ),
+                  ),
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: _isRecording ? 29 : 58,
+                      height: _isRecording ? 29 : 58,
+                      decoration: BoxDecoration(
+                        color: _recordColor,
+                        borderRadius: BorderRadius.circular(
+                          _isRecording ? 8 : 50,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _isRecording ? 'STOP RECORDING' : 'START RECORDING',
+                  style: const TextStyle(
+                    color: _textColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ],
+            ),
           ),
 
-        const SizedBox(height: 8),
+        const SizedBox(height: 18),
 
-        ElevatedButton.icon(
-          onPressed: (_busy || _loading || _isRecording || _isCountingDown)
-              ? null
-              : _importVideo,
-          icon: const Icon(Icons.video_library),
-          label: const Text('Import Video'),
-        ),
-
-        const SizedBox(height: 8),
-
-        ElevatedButton.icon(
-          onPressed:
-              (_cameras.length > 1 &&
-                  !_isRecording &&
-                  !_isCountingDown &&
-                  !_busy)
-              ? _switchCamera
-              : null,
-          icon: const Icon(Icons.cameraswitch),
-          label: const Text('Switch Camera'),
+        // Gallery and camera switching
+        Row(
+          children: [
+            _cameraOption(
+              icon: Icons.video_library_rounded,
+              label: 'Gallery',
+              onTap: (_busy || _loading || _isRecording || _isCountingDown)
+                  ? null
+                  : _importVideo,
+            ),
+            const SizedBox(width: 12),
+            _cameraOption(
+              icon: Icons.cameraswitch_rounded,
+              label: 'Flip Camera',
+              onTap:
+                  (_cameras.length > 1 &&
+                      !_busy &&
+                      !_loading &&
+                      !_isRecording &&
+                      !_isCountingDown)
+                  ? _switchCamera
+                  : null,
+            ),
+          ],
         ),
 
         const SizedBox(height: 8),
@@ -1274,92 +1578,199 @@ class _CaptureScreenState extends State<CaptureScreen>
     final hasVideo = _selectedVideo != null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Record Video')),
-      body: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
+      backgroundColor: _backgroundColor,
+      appBar: AppBar(
+        backgroundColor: _backgroundColor,
+        elevation: 0,
+        centerTitle: false,
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Column(
-                  children: [
-                    Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                    if (!_isRecording &&
-                        !_isCountingDown &&
-                        !_busy &&
-                        !hasVideo)
-                      TextButton(
-                        onPressed: _initializeCamera,
-                        child: const Text('Try Again'),
-                      ),
-                  ],
-                ),
+            Text(
+              'PitchCut AI',
+              style: TextStyle(
+                color: _textColor,
+                fontSize: 19,
+                fontWeight: FontWeight.bold,
               ),
-
-            Expanded(
-              child: _loading && !hasVideo
-                  ? const Center(child: CircularProgressIndicator())
-                  : hasVideo
-                  ? _buildVideoPreview()
-                  : camera != null && camera.value.isInitialized
-                  ? _buildCameraView(camera)
-                  : const Center(child: Text('Camera unavailable')),
             ),
+            Text(
+              'VIDEO STUDIO',
+              style: TextStyle(
+                color: _mutedColor,
+                fontSize: 10,
+                letterSpacing: 2,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Container(
+              padding: const EdgeInsets.all(9),
+              decoration: BoxDecoration(
+                color: _surfaceColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.videocam_rounded, color: _accentColor),
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Page heading
+              if (!hasVideo) ...[
+                const Text(
+                  'Create your moment',
+                  style: TextStyle(
+                    color: _textColor,
+                    fontSize: 23,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Get ready and record your presentation.',
+                  style: TextStyle(color: _mutedColor, fontSize: 12),
+                ),
+                const SizedBox(height: 16),
+              ],
 
-            if (hasVideo)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_isImportedVideo)
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 8),
-                        child: Text('Imported video'),
+              // Error message
+              if (_error != null)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _recordColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _recordColor.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        color: _recordColor,
                       ),
-
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: (_savingProject || _busy)
-                            ? null
-                            : _saveProject,
-                        icon: _savingProject
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.save),
-                        label: Text(
-                          _savingProject ? 'Saving Project...' : 'Save Project',
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(
+                            color: _textColor,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
+                      if (!_isRecording &&
+                          !_isCountingDown &&
+                          !_busy &&
+                          !hasVideo)
+                        IconButton(
+                          onPressed: _initializeCamera,
+                          icon: const Icon(
+                            Icons.refresh_rounded,
+                            color: _accentColor,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+              // Main content
+              Expanded(
+                child: _loading && !hasVideo
+                    ? const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(color: _accentColor),
+                            SizedBox(height: 16),
+                            Text(
+                              'Preparing your camera...',
+                              style: TextStyle(color: _mutedColor),
+                            ),
+                          ],
+                        ),
+                      )
+                    : hasVideo
+                    ? _buildVideoPreview()
+                    : camera != null && camera.value.isInitialized
+                    ? _buildCameraView(camera)
+                    : const Center(
+                        child: Text(
+                          'Camera unavailable',
+                          style: TextStyle(color: _mutedColor),
+                        ),
+                      ),
+              ),
+
+              // Video actions
+              if (hasVideo) ...[
+                const SizedBox(height: 12),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: ElevatedButton.icon(
+                    onPressed: (_savingProject || _busy) ? null : _saveProject,
+                    icon: _savingProject
+                        ? const SizedBox(
+                            width: 19,
+                            height: 19,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.save_rounded),
+                    label: Text(
+                      _savingProject ? 'Saving Project...' : 'Save as Project',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-
-                    const SizedBox(height: 8),
-
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: (_busy || _savingProject)
-                            ? null
-                            : _backToCamera,
-                        icon: const Icon(Icons.arrow_back),
-                        label: const Text('Back to Camera'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _accentColor,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: _cardColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-          ],
+
+                const SizedBox(height: 10),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: OutlinedButton.icon(
+                    onPressed: (_busy || _savingProject) ? null : _backToCamera,
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    label: const Text('Back to Camera'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _textColor,
+                      side: const BorderSide(color: _cardColor),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

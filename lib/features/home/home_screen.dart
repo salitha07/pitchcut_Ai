@@ -135,6 +135,7 @@ class HomeScreen extends ConsumerWidget {
                   child: QuickActionTile(
                     icon: Icons.video_library_rounded,
                     label: 'Editor',
+                    color: Colors.deepPurple,
                     onTap: () => context.push('/video-editor'),
                   ),
                 ),
@@ -143,6 +144,7 @@ class HomeScreen extends ConsumerWidget {
                   child: QuickActionTile(
                     icon: Icons.insights_rounded,
                     label: 'Analysis',
+                    color: Colors.blue,
                     onTap: () => context.push('/analysis'),
                   ),
                 ),
@@ -151,6 +153,7 @@ class HomeScreen extends ConsumerWidget {
                   child: QuickActionTile(
                     icon: Icons.closed_caption_rounded,
                     label: 'Captions',
+                    color: Colors.teal,
                     onTap: () => context.push('/captions'),
                   ),
                 ),

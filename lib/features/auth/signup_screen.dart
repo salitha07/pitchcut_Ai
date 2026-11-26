@@ -4,6 +4,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/auth_repository.dart';
+import 'facebook_sign_in_error_message.dart';
+import 'widgets/facebook_sign_in_button.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -88,6 +90,26 @@ class _SignupScreenState extends State<SignupScreen> {
     } catch (_) {
       if (!mounted) return;
       _showMessage('Something went wrong. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _signUpWithFacebook() async {
+    if (_isLoading) return;
+
+    FocusScope.of(context).unfocus();
+    setState(() => _isLoading = true);
+
+    try {
+      final credential = await _authRepository.signInWithFacebook();
+      if (credential == null || !mounted) return;
+      context.go('/home');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(facebookSignInErrorMessage(error));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -476,6 +498,13 @@ class _SignupScreenState extends State<SignupScreen> {
                                   ],
                                 ),
                         ),
+                      ),
+
+                      const SizedBox(height: 18),
+
+                      FacebookSignInButton(
+                        onPressed: _isLoading ? null : _signUpWithFacebook,
+                        isLoading: _isLoading,
                       ),
 
                       const SizedBox(height: 24),

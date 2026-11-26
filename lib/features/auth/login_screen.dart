@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../data/auth_repository.dart';
+import 'facebook_sign_in_error_message.dart';
+import 'widgets/facebook_sign_in_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -138,6 +140,26 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       _showMessage('Google Sign-In failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _signInWithFacebook() async {
+    if (_isLoading) return;
+
+    FocusScope.of(context).unfocus();
+    setState(() => _isLoading = true);
+
+    try {
+      final credential = await _authRepository.signInWithFacebook();
+      if (credential == null || !mounted) return;
+      context.go('/home');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(facebookSignInErrorMessage(error));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -556,6 +578,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 20),
 
                       _googleSignInButton(),
+
+                      const SizedBox(height: 12),
+
+                      FacebookSignInButton(
+                        onPressed: _isLoading ? null : _signInWithFacebook,
+                        isLoading: _isLoading,
+                      ),
 
                       const SizedBox(height: 28),
 
