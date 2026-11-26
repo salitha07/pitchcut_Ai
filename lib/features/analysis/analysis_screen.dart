@@ -1,7 +1,9 @@
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/caption.dart' as m7;
+import '../../models/clip.dart';
 import '../../models/performance_report.dart';
 import '../../models/project.dart';
 import '../../providers/repository_providers.dart';
@@ -23,9 +25,15 @@ class AnalysisScreen extends ConsumerStatefulWidget {
 
 class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   late Future<List<Project>> _projectsFuture;
+  late Future<List<Clip>> _clipsFuture;
+  late Future<List<PerformanceReport>> _reportsFuture;
 
   String? _selectedProjectId;
+  String? _dataProjectId;
+
   PerformanceReport? _report;
+
+  final Set<String> _analysingClipIds = {};
 
   bool _isAnalysing = false;
   bool _isOpeningEditor = false;
@@ -38,6 +46,37 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
 
     _selectedProjectId = widget.projectId;
     _projectsFuture = ref.read(projectRepositoryProvider).getProjects();
+
+    _clipsFuture = Future.value([]);
+    _reportsFuture = Future.value([]);
+
+    if (_selectedProjectId != null && _selectedProjectId!.isNotEmpty) {
+      _loadProjectData(_selectedProjectId!);
+    }
+  }
+
+  void _loadProjectData(String projectId) {
+    _dataProjectId = projectId;
+
+    _clipsFuture = ref
+        .read(projectRepositoryProvider)
+        .getClips(projectId);
+
+    _reportsFuture = ref
+        .read(reportRepositoryProvider)
+        .getReports(projectId);
+  }
+
+  Future<void> _refreshReports() async {
+    final projectId = _selectedProjectId;
+
+    if (projectId == null) return;
+
+    setState(() {
+      _reportsFuture = ref
+          .read(reportRepositoryProvider)
+          .getReports(projectId);
+    });
   }
 
   Future<void> _analyse() async {
@@ -65,6 +104,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         _report = report;
         _isAnalysing = false;
       });
+
+      await _refreshReports();
     } catch (error) {
       if (!mounted) return;
 
@@ -73,6 +114,48 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         _isAnalysing = false;
       });
     }
+  }
+
+  Future<void> _analyseVideo(Clip clip) async {
+    if (_analysingClipIds.contains(clip.id) || _isAnalysing) return;
+
+    final projectId = _selectedProjectId;
+
+    if (projectId == null) return;
+
+    setState(() {
+      _analysingClipIds.add(clip.id);
+      _error = null;
+    });
+
+    try {
+      final report = await ref
+          .read(analysisServiceProvider)
+          .analyseVideo(projectId, clip.id);
+
+      if (!mounted) return;
+
+      setState(() {
+        _report = report;
+        _analysingClipIds.remove(clip.id);
+      });
+
+      await _refreshReports();
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _error = 'Video analysis failed: $error';
+        _analysingClipIds.remove(clip.id);
+      });
+    }
+  }
+
+  void _showReport(PerformanceReport report) {
+    setState(() {
+      _report = report;
+      _error = null;
+    });
   }
 
   /// Opens the selected project in the video editor with AI pause suggestions.
@@ -121,6 +204,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       }
 
       var captions = const <m7.Caption>[];
+
       try {
         captions = await ref
             .read(captionRepositoryProvider)
@@ -171,7 +255,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     for (final pause in report.pauses) {
       if (!pause.isValid) continue;
 
-      // Resolve the original source clip ID.
       String? clipId = pause.clipId;
 
       if ((clipId == null || clipId.isEmpty) &&
@@ -183,7 +266,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
 
       if (clipId == null || clipId.isEmpty) continue;
 
-      // Find the timeline clip containing this complete source pause.
       VideoClip? matchingClip;
 
       for (final clip in timeline.clips) {
@@ -192,7 +274,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         final sourceStartMs = clip.sourceStart.inMilliseconds;
         final sourceEndMs = clip.sourceEnd.inMilliseconds;
 
-        if (pause.startMs >= sourceStartMs && pause.endMs <= sourceEndMs) {
+        if (pause.startMs >= sourceStartMs &&
+            pause.endMs <= sourceEndMs) {
           matchingClip = clip;
           break;
         }
@@ -200,13 +283,12 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
 
       if (matchingClip == null) continue;
 
-      // Convert source timestamps into local timeline clip timestamps.
       final localStartMs =
           pause.startMs - matchingClip.sourceStart.inMilliseconds;
 
-      final localEndMs = pause.endMs - matchingClip.sourceStart.inMilliseconds;
+      final localEndMs =
+          pause.endMs - matchingClip.sourceStart.inMilliseconds;
 
-      // Keep at least 500ms on both sides of the removed range.
       if (localStartMs < 500 ||
           localEndMs <= localStartMs ||
           matchingClip.duration.inMilliseconds - localEndMs < 500) {
@@ -268,6 +350,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
               ? null
               : projects.firstWhere((project) => project.id == selectedId);
 
+          if (selectedId != null && _dataProjectId != selectedId) {
+            _loadProjectData(selectedId);
+          }
+
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -277,8 +363,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Review speaking pace, face positioning, camera stability '
-                'and pauses in your video.',
+                'Analyse individual videos or evaluate your complete project.',
               ),
               const SizedBox(height: 24),
 
@@ -292,38 +377,200 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 items: projects.map((project) {
                   return DropdownMenuItem(
                     value: project.id,
-                    child: Text(project.title, overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      project.title,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   );
                 }).toList(),
-                onChanged: _isAnalysing || _isOpeningEditor
+                onChanged: _isAnalysing ||
+                        _analysingClipIds.isNotEmpty ||
+                        _isOpeningEditor
                     ? null
                     : (value) {
                         setState(() {
                           _selectedProjectId = value;
                           _report = null;
                           _error = null;
+
+                          if (value != null) {
+                            _loadProjectData(value);
+                          } else {
+                            _dataProjectId = null;
+                            _clipsFuture = Future.value([]);
+                            _reportsFuture = Future.value([]);
+                          }
                         });
                       },
               ),
 
-              const SizedBox(height: 16),
+              if (selectedId != null) ...[
+                const SizedBox(height: 24),
+                Text(
+                  'Project Videos',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
 
-              SizedBox(
-                height: 48,
-                child: FilledButton.icon(
-                  onPressed: _isAnalysing || _isOpeningEditor ? null : _analyse,
-                  icon: _isAnalysing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.analytics_outlined),
-                  label: Text(
-                    _isAnalysing ? 'Analysing...' : 'Analyse Project',
+                FutureBuilder<List<Clip>>(
+                  future: _clipsFuture,
+                  builder: (context, clipSnapshot) {
+                    if (clipSnapshot.connectionState ==
+                        ConnectionState.waiting) {
+                      return const Center(
+                        child: CircularProgressIndicator(),
+                      );
+                    }
+
+                    if (clipSnapshot.hasError) {
+                      return _errorCard(
+                        'Could not load project videos: '
+                        '${clipSnapshot.error}',
+                      );
+                    }
+
+                    final clips = clipSnapshot.data ?? [];
+
+                    if (clips.isEmpty) {
+                      return const Card(
+                        child: Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('No videos found in this project.'),
+                        ),
+                      );
+                    }
+
+                    return FutureBuilder<List<PerformanceReport>>(
+                      future: _reportsFuture,
+                      builder: (context, reportSnapshot) {
+                        if (reportSnapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+
+                        if (reportSnapshot.hasError) {
+                          return _errorCard(
+                            'Could not load saved reports: '
+                            '${reportSnapshot.error}',
+                          );
+                        }
+
+                        final reports = reportSnapshot.data ?? [];
+
+                        return Column(
+                          children: clips.map((clip) {
+                            final videoReports = reports.where(
+                              (report) =>
+                                  report.reportType == 'video' &&
+                                  report.clipId == clip.id,
+                            ).toList();
+
+                            videoReports.sort(
+                              (a, b) =>
+                                  b.createdAt.compareTo(a.createdAt),
+                            );
+
+                            final latestReport = videoReports.isEmpty
+                                ? null
+                                : videoReports.first;
+
+                            final isBusy =
+                                _analysingClipIds.contains(clip.id);
+
+                            return _buildVideoCard(
+                              clip: clip,
+                              latestReport: latestReport,
+                              isBusy: isBusy,
+                            );
+                          }).toList(),
+                        );
+                      },
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 24),
+
+                SizedBox(
+                  height: 50,
+                  child: FilledButton.icon(
+                    onPressed: _isAnalysing ||
+                            _analysingClipIds.isNotEmpty ||
+                            _isOpeningEditor
+                        ? null
+                        : _analyse,
+                    icon: _isAnalysing
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.analytics_outlined),
+                    label: Text(
+                      _isAnalysing
+                          ? 'Analysing Project...'
+                          : 'Analyse Entire Project',
+                    ),
                   ),
                 ),
-              ),
+
+                const SizedBox(height: 8),
+                Text(
+                  'This analyses all videos together and saves an overall report.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+
+                const SizedBox(height: 24),
+
+                FutureBuilder<List<PerformanceReport>>(
+                  future: _reportsFuture,
+                  builder: (context, reportSnapshot) {
+                    if (!reportSnapshot.hasData) {
+                      return const SizedBox.shrink();
+                    }
+
+                    final projectReports = reportSnapshot.data!
+                        .where((report) => report.reportType == 'project')
+                        .toList();
+
+                    if (projectReports.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+
+                    projectReports.sort(
+                      (a, b) => b.createdAt.compareTo(a.createdAt),
+                    );
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Saved Project Reports',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        ...projectReports.map(
+                          (report) => Card(
+                            child: ListTile(
+                              leading: const Icon(Icons.assessment_outlined),
+                              title: Text('Project Score: ${report.score}/100'),
+                              subtitle: Text(
+                                _formatDate(report.createdAt),
+                              ),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () => _showReport(report),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
 
               if (_error != null) ...[
                 const SizedBox(height: 16),
@@ -341,6 +588,107 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     );
   }
 
+  Widget _buildVideoCard({
+    required Clip clip,
+    required PerformanceReport? latestReport,
+    required bool isBusy,
+  }) {
+    final fileName = _fileName(clip.localPath);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.video_file_outlined, size: 30),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        fileName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${_formatDuration(clip.durationMs)}  •  '
+                        '${clip.width} × ${clip.height}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            if (latestReport != null)
+              Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle,
+                    color: Colors.green,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Latest score: ${latestReport.score}/100',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => _showReport(latestReport),
+                    child: const Text('View Report'),
+                  ),
+                ],
+              )
+            else
+              const Text(
+                'Not analysed yet',
+                style: TextStyle(color: Colors.grey),
+              ),
+
+            const SizedBox(height: 8),
+
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: isBusy ||
+                        _isAnalysing ||
+                        _isOpeningEditor ||
+                        _analysingClipIds.isNotEmpty
+                    ? null
+                    : () => _analyseVideo(clip),
+                icon: isBusy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.analytics_outlined),
+                label: Text(
+                  isBusy
+                      ? 'Analysing Video...'
+                      : latestReport == null
+                          ? 'Analyse This Video'
+                          : 'Analyse Again',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _message(String message) {
     return Center(
       child: Padding(
@@ -353,25 +701,40 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   Widget _errorCard(String message) {
     return Card(
       color: Theme.of(context).colorScheme.errorContainer,
-      child: Padding(padding: const EdgeInsets.all(16), child: Text(message)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(message),
+      ),
     );
   }
 
   Widget _buildReport(PerformanceReport report, Project project) {
+    final isVideoReport = report.reportType == 'video';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const Divider(height: 32),
+
+        Text(
+          isVideoReport ? 'Individual Video Report' : 'Overall Project Report',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+
+        const SizedBox(height: 16),
+
         Center(
           child: Column(
             children: [
               Text(
-                'Overall Performance',
+                'Performance Score',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 12),
               CircleAvatar(
                 radius: 58,
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                backgroundColor:
+                    Theme.of(context).colorScheme.primaryContainer,
                 child: Text(
                   '${report.score}',
                   style: Theme.of(context).textTheme.headlineLarge,
@@ -430,7 +793,9 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             width: double.infinity,
             height: 48,
             child: FilledButton.icon(
-              onPressed: _isOpeningEditor || _isAnalysing
+              onPressed: _isOpeningEditor ||
+                      _isAnalysing ||
+                      _analysingClipIds.isNotEmpty
                   ? null
                   : () => _openEditorWithSuggestions(project, report),
               icon: _isOpeningEditor
@@ -456,7 +821,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
 
         const SizedBox(height: 24),
 
-        Text('Improvement Tips', style: Theme.of(context).textTheme.titleLarge),
+        Text(
+          'Improvement Tips',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
 
         const SizedBox(height: 8),
 
@@ -477,6 +845,11 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             fontWeight: FontWeight.w600,
           ),
         ),
+
+        Text(
+          'Generated: ${_formatDate(report.createdAt)}',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       ],
     );
   }
@@ -492,6 +865,20 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     );
   }
 
+  String _fileName(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    return normalized.split('/').last;
+  }
+
+  String _formatDuration(int milliseconds) {
+    final totalSeconds = milliseconds ~/ 1000;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    return '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
+
   String _formatTime(int milliseconds) {
     final totalSeconds = milliseconds ~/ 1000;
     final minutes = totalSeconds ~/ 60;
@@ -499,5 +886,16 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
 
     return '${minutes.toString().padLeft(2, '0')}:'
         '${seconds.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDate(String value) {
+    final date = DateTime.tryParse(value);
+
+    if (date == null) return value;
+
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')} '
+        '${date.hour.toString().padLeft(2, '0')}:'
+        '${date.minute.toString().padLeft(2, '0')}';
   }
 }

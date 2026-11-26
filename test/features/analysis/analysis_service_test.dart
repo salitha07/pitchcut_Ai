@@ -1,3 +1,4 @@
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pitchcut_ai/data/caption_repository.dart';
 import 'package:pitchcut_ai/data/project_repository.dart';
@@ -56,17 +57,50 @@ class _EmptyFaceFrameService extends FaceFrameService {
   }
 }
 
+Clip _createClip(String id, int order) {
+  return Clip(
+    id: id,
+    projectId: 'project-1',
+    localPath: '/fake/$id.mp4',
+    durationMs: 60000,
+    width: 1920,
+    height: 1080,
+    order: order,
+  );
+}
+
+Caption _createCaption({
+  required String id,
+  required String clipId,
+  required int wordCount,
+}) {
+  return Caption(
+    id: id,
+    startMs: 0,
+    endMs: 60000,
+    text: List.filled(wordCount, 'word').join(' '),
+    sourceClipId: clipId,
+    sourceStartMs: 0,
+  );
+}
+
+AnalysisService _createService({
+  required List<Clip> clips,
+  required List<Caption> captions,
+  required _FakeReportRepository reportRepository,
+}) {
+  return AnalysisService(
+    projectRepository: _FakeProjectRepository(clips),
+    captionRepository: _FakeCaptionRepository(captions),
+    reportRepository: reportRepository,
+    editorEngine: FakeEditorEngine(delay: Duration.zero),
+    faceFrameService: _EmptyFaceFrameService(),
+  );
+}
+
 void main() {
   test('caption text and timestamps feed the saved pace score', () async {
-    final clip = Clip(
-      id: 'clip-1',
-      projectId: 'project-1',
-      localPath: '/fake/video.mp4',
-      durationMs: 60000,
-      width: 1920,
-      height: 1080,
-      order: 0,
-    );
+    final clip = _createClip('clip-1', 0);
 
     final captions = [
       Caption(
@@ -79,12 +113,10 @@ void main() {
 
     final reportRepository = _FakeReportRepository();
 
-    final service = AnalysisService(
-      projectRepository: _FakeProjectRepository([clip]),
-      captionRepository: _FakeCaptionRepository(captions),
+    final service = _createService(
+      clips: [clip],
+      captions: captions,
       reportRepository: reportRepository,
-      editorEngine: FakeEditorEngine(delay: Duration.zero),
-      faceFrameService: _EmptyFaceFrameService(),
     );
 
     final report = await service.analyseProject('project-1');
@@ -93,5 +125,88 @@ void main() {
     expect(report.score, 100);
     expect(reportRepository.savedReport, isNotNull);
     expect(reportRepository.savedReport!.paceScore, 100);
+  });
+
+  test('analyseVideo analyses only the selected video captions', () async {
+    final clip1 = _createClip('clip-1', 0);
+    final clip2 = _createClip('clip-2', 1);
+
+    final captions = [
+      _createCaption(
+        id: 'caption-1',
+        clipId: 'clip-1',
+        wordCount: 120,
+      ),
+      _createCaption(
+        id: 'caption-2',
+        clipId: 'clip-2',
+        wordCount: 10,
+      ),
+    ];
+
+    final reportRepository = _FakeReportRepository();
+
+    final service = _createService(
+      clips: [clip1, clip2],
+      captions: captions,
+      reportRepository: reportRepository,
+    );
+
+    final report = await service.analyseVideo('project-1', 'clip-1');
+
+    expect(report.paceScore, 100);
+    expect(report.reportType, 'video');
+    expect(report.clipId, 'clip-1');
+
+    expect(reportRepository.savedReport, isNotNull);
+    expect(reportRepository.savedReport!.clipId, 'clip-1');
+    expect(reportRepository.savedReport!.reportType, 'video');
+  });
+
+  test('analyseVideo uses captions belonging to the second video', () async {
+    final clip1 = _createClip('clip-1', 0);
+    final clip2 = _createClip('clip-2', 1);
+
+    final captions = [
+      _createCaption(
+        id: 'caption-1',
+        clipId: 'clip-1',
+        wordCount: 120,
+      ),
+      _createCaption(
+        id: 'caption-2',
+        clipId: 'clip-2',
+        wordCount: 10,
+      ),
+    ];
+
+    final reportRepository = _FakeReportRepository();
+
+    final service = _createService(
+      clips: [clip1, clip2],
+      captions: captions,
+      reportRepository: reportRepository,
+    );
+
+    final report = await service.analyseVideo('project-1', 'clip-2');
+
+    expect(report.reportType, 'video');
+    expect(report.clipId, 'clip-2');
+    expect(report.paceScore, lessThan(100));
+  });
+
+  test('analyseVideo throws when the clip does not exist', () async {
+    final reportRepository = _FakeReportRepository();
+
+    final service = _createService(
+      clips: [_createClip('clip-1', 0)],
+      captions: [],
+      reportRepository: reportRepository,
+    );
+
+    expect(
+      () => service.analyseVideo('project-1', 'invalid-clip'),
+      throwsA(isA<StateError>()),
+    );
   });
 }

@@ -1,3 +1,4 @@
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pitchcut_ai/models/project.dart';
 import 'package:pitchcut_ai/models/clip.dart';
@@ -129,7 +130,60 @@ void main() {
       expect(Caption.fromJson(caption.toJson()).toJson(), caption.toJson());
     });
 
-    test('copyWith updates caption text', () {
+    test('JSON round trip preserves source video mapping', () {
+      const caption = Caption(
+        id: 'cap1',
+        startMs: 5000,
+        endMs: 6500,
+        text: 'Hello everyone',
+        sourceClipId: 'source_clip_1',
+        sourceStartMs: 2000,
+      );
+
+      final restored = Caption.fromJson(caption.toJson());
+
+      expect(restored.sourceClipId, 'source_clip_1');
+      expect(restored.sourceStartMs, 2000);
+      expect(restored.toJson(), caption.toJson());
+    });
+
+    test('older JSON without source mapping remains compatible', () {
+      final oldJson = {
+        'id': 'cap_old',
+        'startMs': 1000,
+        'endMs': 2500,
+        'text': 'Old caption',
+      };
+
+      final restored = Caption.fromJson(oldJson);
+
+      expect(restored.id, 'cap_old');
+      expect(restored.startMs, 1000);
+      expect(restored.endMs, 2500);
+      expect(restored.text, 'Old caption');
+      expect(restored.sourceClipId, isNull);
+      expect(restored.sourceStartMs, isNull);
+    });
+
+    test('copyWith updates caption text and preserves source mapping', () {
+      const caption = Caption(
+        id: 'cap1',
+        startMs: 1000,
+        endMs: 2500,
+        text: 'Hello',
+        sourceClipId: 'source_clip_1',
+        sourceStartMs: 500,
+      );
+
+      final updated = caption.copyWith(text: 'Welcome');
+
+      expect(updated.text, 'Welcome');
+      expect(updated.sourceClipId, 'source_clip_1');
+      expect(updated.sourceStartMs, 500);
+      expect(caption.text, 'Hello');
+    });
+
+    test('copyWith updates source mapping', () {
       const caption = Caption(
         id: 'cap1',
         startMs: 1000,
@@ -137,7 +191,13 @@ void main() {
         text: 'Hello',
       );
 
-      expect(caption.copyWith(text: 'Welcome').text, 'Welcome');
+      final updated = caption.copyWith(
+        sourceClipId: 'source_clip_2',
+        sourceStartMs: 3000,
+      );
+
+      expect(updated.sourceClipId, 'source_clip_2');
+      expect(updated.sourceStartMs, 3000);
     });
   });
 
@@ -176,6 +236,50 @@ void main() {
       expect(restored.toJson(), report.toJson());
       expect(restored.pauses.first.startMs, 1000);
       expect(restored.tips.length, 2);
+      expect(restored.reportType, 'project');
+      expect(restored.clipId, isNull);
+    });
+
+    test('video report JSON preserves report type and original clip ID', () {
+      const report = PerformanceReport(
+        id: 'r2',
+        projectId: 'p1',
+        createdAt: '2026-10-14T11:00:00Z',
+        score: 90,
+        reportType: 'video',
+        clipId: 'source_clip_1',
+        faceScore: 95,
+        stabilityScore: 85,
+        paceScore: 90,
+      );
+
+      final restored = PerformanceReport.fromJson(report.toJson());
+
+      expect(restored.reportType, 'video');
+      expect(restored.clipId, 'source_clip_1');
+      expect(restored.projectId, 'p1');
+      expect(restored.score, 90);
+      expect(restored.toJson(), report.toJson());
+    });
+
+    test('older report JSON remains compatible', () {
+      final oldJson = {
+        'id': 'old_report',
+        'projectId': 'p1',
+        'createdAt': '2026-10-14T10:00:00Z',
+        'score': 75,
+        'pauses': [],
+        'faceScore': 80,
+        'stabilityScore': 70,
+        'paceScore': 75,
+        'tips': ['Keep practising'],
+      };
+
+      final restored = PerformanceReport.fromJson(oldJson);
+
+      expect(restored.id, 'old_report');
+      expect(restored.reportType, 'project');
+      expect(restored.clipId, isNull);
     });
 
     test('copyWith updates score', () {
@@ -191,6 +295,39 @@ void main() {
 
       expect(report.copyWith(score: 90).score, 90);
       expect(report.score, 70);
+    });
+
+    test('copyWith preserves video report identity', () {
+      const report = PerformanceReport(
+        id: 'r2',
+        projectId: 'p1',
+        createdAt: '2026-10-14T11:00:00Z',
+        score: 85,
+        reportType: 'video',
+        clipId: 'source_clip_1',
+      );
+
+      final updated = report.copyWith(score: 95);
+
+      expect(updated.score, 95);
+      expect(updated.reportType, 'video');
+      expect(updated.clipId, 'source_clip_1');
+    });
+
+    test('copyWith can clear clip ID', () {
+      const report = PerformanceReport(
+        id: 'r2',
+        projectId: 'p1',
+        createdAt: '2026-10-14T11:00:00Z',
+        score: 85,
+        reportType: 'video',
+        clipId: 'source_clip_1',
+      );
+
+      final updated = report.copyWith(clearClipId: true);
+
+      expect(updated.clipId, isNull);
+      expect(updated.reportType, 'video');
     });
   });
 }

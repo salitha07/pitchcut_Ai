@@ -1,3 +1,4 @@
+
 import 'pause_segment.dart';
 
 class PerformanceReport {
@@ -11,6 +12,13 @@ class PerformanceReport {
   final int? paceScore;
   final List<String> tips;
 
+  /// Either 'project' or 'video'.
+  final String reportType;
+
+  /// Original source clip ID for individual video reports.
+  /// Null for project-level reports.
+  final String? clipId;
+
   const PerformanceReport({
     required this.id,
     required this.projectId,
@@ -21,19 +29,23 @@ class PerformanceReport {
     this.stabilityScore,
     this.paceScore,
     this.tips = const [],
+    this.reportType = 'project',
+    this.clipId,
   });
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'projectId': projectId,
-    'createdAt': createdAt,
-    'score': score,
-    'pauses': pauses.map((pause) => pause.toJson()).toList(),
-    'faceScore': faceScore,
-    'stabilityScore': stabilityScore,
-    'paceScore': paceScore,
-    'tips': tips,
-  };
+        'id': id,
+        'projectId': projectId,
+        'createdAt': createdAt,
+        'score': score,
+        'pauses': pauses.map((pause) => pause.toJson()).toList(),
+        'faceScore': faceScore,
+        'stabilityScore': stabilityScore,
+        'paceScore': paceScore,
+        'tips': tips,
+        'reportType': reportType,
+        'clipId': clipId,
+      };
 
   factory PerformanceReport.fromJson(Map<String, dynamic> json) {
     final rawPauses = json['pauses'] as List? ?? [];
@@ -53,6 +65,8 @@ class PerformanceReport {
       stabilityScore: json['stabilityScore'] as int?,
       paceScore: json['paceScore'] as int?,
       tips: List<String>.from(json['tips'] as List? ?? []),
+      reportType: json['reportType'] as String? ?? 'project',
+      clipId: json['clipId'] as String?,
     );
   }
 
@@ -66,6 +80,9 @@ class PerformanceReport {
     int? stabilityScore,
     int? paceScore,
     List<String>? tips,
+    String? reportType,
+    String? clipId,
+    bool clearClipId = false,
   }) {
     return PerformanceReport(
       id: id ?? this.id,
@@ -77,6 +94,8 @@ class PerformanceReport {
       stabilityScore: stabilityScore ?? this.stabilityScore,
       paceScore: paceScore ?? this.paceScore,
       tips: tips ?? this.tips,
+      reportType: reportType ?? this.reportType,
+      clipId: clearClipId ? null : clipId ?? this.clipId,
     );
   }
 }

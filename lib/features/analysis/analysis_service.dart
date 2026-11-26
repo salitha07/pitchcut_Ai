@@ -1,9 +1,12 @@
+
 import 'package:flutter/foundation.dart';
 
 import '../../data/caption_repository.dart';
 import '../../data/project_repository.dart';
 import '../../data/report_repository.dart';
 import '../../features/editor/engine/editor_engine.dart';
+import '../../models/caption.dart';
+import '../../models/clip.dart';
 import '../../models/pause_segment.dart';
 import '../../models/performance_report.dart';
 import 'face_frame_service.dart';
@@ -14,10 +17,10 @@ import 'stability_analysis_service.dart';
 
 class AnalysisService {
   AnalysisService({
-    required this._projectRepository,
-    required this._captionRepository,
-    required this._reportRepository,
-    required this._editorEngine,
+    required this.projectRepository,
+    required this.captionRepository,
+    required this.reportRepository,
+    required this.editorEngine,
     FaceFrameService? faceFrameService,
     FacePositionService? facePositionService,
     PauseDetectionService? pauseDetectionService,
@@ -33,58 +36,148 @@ class AnalysisService {
        _stabilityAnalysisService =
            stabilityAnalysisService ?? const StabilityAnalysisService();
 
-  final ProjectRepository _projectRepository;
-  final CaptionRepository _captionRepository;
-  final ReportRepository _reportRepository;
-  final EditorEngine _editorEngine;
+  final ProjectRepository projectRepository;
+  final CaptionRepository captionRepository;
+  final ReportRepository reportRepository;
+  final EditorEngine editorEngine;
+
   final FaceFrameService _faceFrameService;
   final FacePositionService _facePositionService;
   final PauseDetectionService _pauseDetectionService;
   final SpeakingPaceService _speakingPaceService;
   final StabilityAnalysisService _stabilityAnalysisService;
 
+  /// Analyses one original video clip independently.
+  Future<PerformanceReport> analyseVideo(
+    String projectId,
+    String clipId,
+  ) async {
+    final clips = await projectRepository.getClips(projectId);
+
+    final matchingClips = clips.where((clip) => clip.id == clipId).toList();
+
+    if (matchingClips.isEmpty) {
+      throw StateError('The selected video was not found in this project.');
+    }
+
+    final clip = matchingClips.first;
+    final allCaptions = await captionRepository.getCaptions(projectId);
+
+    // Only captions explicitly mapped to this original source clip.
+    // Legacy unmapped captions are accepted only for single-clip projects.
+    final videoCaptions = _getCaptionsForVideo(
+      allCaptions,
+      clip,
+      allowLegacyCaptions: clips.length == 1,
+    );
+
+    final result = await _analyseClips([clip], videoCaptions);
+
+    final report = PerformanceReport(
+      id: _createReportId(),
+      projectId: projectId,
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+      score: result.score,
+      pauses: result.pauses,
+      faceScore: result.faceScore,
+      stabilityScore: result.stabilityScore,
+      paceScore: result.paceScore,
+      tips: result.tips,
+      reportType: 'video',
+      clipId: clip.id,
+    );
+
+    await reportRepository.saveReport(report);
+
+    return report;
+  }
+
+  /// Analyses all videos in a project together.
   Future<PerformanceReport> analyseProject(String projectId) async {
-    final clips = await _projectRepository.getClips(projectId);
+    final clips = await projectRepository.getClips(projectId);
 
     if (clips.isEmpty) {
       throw StateError('This project has no video clips to analyse.');
     }
 
-    final captions = await _captionRepository.getCaptions(projectId);
+    final captions = await captionRepository.getCaptions(projectId);
 
+    final result = await _analyseClips(clips, captions);
+
+    final report = PerformanceReport(
+      id: _createReportId(),
+      projectId: projectId,
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+      score: result.score,
+      pauses: result.pauses,
+      faceScore: result.faceScore,
+      stabilityScore: result.stabilityScore,
+      paceScore: result.paceScore,
+      tips: result.tips,
+      reportType: 'project',
+    );
+
+    await reportRepository.saveReport(report);
+
+    return report;
+  }
+
+  /// Filters captions by their original video identity.
+  List<Caption> _getCaptionsForVideo(
+    List<Caption> captions,
+    Clip clip, {
+    required bool allowLegacyCaptions,
+  }) {
+    final matchingCaptions = <Caption>[];
+
+    for (final caption in captions) {
+      if (caption.sourceClipId == clip.id) {
+        final sourceStartMs = caption.sourceStartMs;
+
+        // Without an original source timestamp, timeline timestamps
+        // cannot safely be used for individual video pace analysis.
+        if (sourceStartMs == null || sourceStartMs < 0) continue;
+
+        final durationMs = caption.endMs - caption.startMs;
+
+        if (durationMs <= 0) continue;
+
+        matchingCaptions.add(
+          Caption(
+            id: caption.id,
+            startMs: sourceStartMs,
+            endMs: sourceStartMs + durationMs,
+            text: caption.text,
+            sourceClipId: caption.sourceClipId,
+            sourceStartMs: sourceStartMs,
+          ),
+        );
+      } else if (caption.sourceClipId == null && allowLegacyCaptions) {
+        // Backward compatibility for old single-video projects.
+        matchingCaptions.add(caption);
+      }
+    }
+
+    return matchingCaptions;
+  }
+
+  Future<_AnalysisResult> _analyseClips(
+    List<Clip> clips,
+    List<Caption> captions,
+  ) async {
     final allPauses = <PauseSegment>[];
     final faceScores = <int>[];
     final stabilityScores = <int>[];
+
     var pauseAnalysisAvailable = false;
 
-    // Analyse each clip and preserve its identity for editor suggestions.
     for (var clipIndex = 0; clipIndex < clips.length; clipIndex++) {
       final clip = clips[clipIndex];
 
       try {
-        final samples = await _editorEngine.getLoudnessSamples(clip.localPath);
-
-        // Temporary diagnostics to inspect background noise levels.
-        if (samples.isNotEmpty) {
-          final sorted = List<double>.from(samples)..sort();
-
-          double percentile(double p) {
-            final index = ((sorted.length - 1) * p).round();
-            return sorted[index];
-          }
-
-          debugPrint(
-            'LOUDNESS DEBUG: '
-            'min=${sorted.first}, '
-            'p10=${percentile(0.10)}, '
-            'p25=${percentile(0.25)}, '
-            'median=${percentile(0.50)}, '
-            'p75=${percentile(0.75)}, '
-            'max=${sorted.last}',
-          );
-        } else {
-          debugPrint('LOUDNESS DEBUG: No samples for ${clip.id}');
-        }
+        final samples = await editorEngine.getLoudnessSamples(
+          clip.localPath,
+        );
 
         final detectedPauses = _pauseDetectionService.detectPauses(
           samples,
@@ -93,7 +186,10 @@ class AnalysisService {
 
         allPauses.addAll(
           detectedPauses.map(
-            (pause) => pause.copyWith(clipId: clip.id, clipIndex: clipIndex),
+            (pause) => pause.copyWith(
+              clipId: clip.id,
+              clipIndex: clipIndex,
+            ),
           ),
         );
 
@@ -150,10 +246,7 @@ class AnalysisService {
       );
     }
 
-    final report = PerformanceReport(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      projectId: projectId,
-      createdAt: DateTime.now().toUtc().toIso8601String(),
+    return _AnalysisResult(
       score: overallScore,
       pauses: allPauses,
       faceScore: faceScore,
@@ -166,10 +259,10 @@ class AnalysisService {
         paceScore: paceScore,
       ),
     );
+  }
 
-    await _reportRepository.saveReport(report);
-
-    return report;
+  static String _createReportId() {
+    return DateTime.now().microsecondsSinceEpoch.toString();
   }
 
   static int? calculateOverallScore({
@@ -221,10 +314,9 @@ class AnalysisService {
   int? _average(List<int> values) {
     if (values.isEmpty) return null;
 
-    return (values.reduce((a, b) => a + b) / values.length).round().clamp(
-      0,
-      100,
-    );
+    return (values.reduce((a, b) => a + b) / values.length)
+        .round()
+        .clamp(0, 100);
   }
 
   List<String> _generateTips({
@@ -257,4 +349,22 @@ class AnalysisService {
 
     return tips.take(3).toList();
   }
+}
+
+class _AnalysisResult {
+  const _AnalysisResult({
+    required this.score,
+    required this.pauses,
+    required this.faceScore,
+    required this.stabilityScore,
+    required this.paceScore,
+    required this.tips,
+  });
+
+  final int score;
+  final List<PauseSegment> pauses;
+  final int? faceScore;
+  final int? stabilityScore;
+  final int? paceScore;
+  final List<String> tips;
 }
