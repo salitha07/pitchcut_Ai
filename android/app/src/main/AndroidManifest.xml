@@ -11,7 +11,7 @@
 
     
     <application
-        android:label="pitchcut_ai"
+        android:label="PitchCut AI"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round">

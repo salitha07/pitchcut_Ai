@@ -1,4 +1,3 @@
-
 import 'package:material_ui/material_ui.dart';
 
 class AppTheme {
@@ -15,10 +14,7 @@ class AppTheme {
   static ThemeData _build(Brightness brightness) {
     final isLight = brightness == Brightness.light;
 
-    var scheme = ColorScheme.fromSeed(
-      seedColor: _seed,
-      brightness: brightness,
-    );
+    var scheme = ColorScheme.fromSeed(seedColor: _seed, brightness: brightness);
 
     if (!isLight) {
       scheme = scheme.copyWith(
@@ -39,8 +35,9 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor:
-          isLight ? const Color(0xFFF4F7F7) : _darkBackground,
+      scaffoldBackgroundColor: isLight
+          ? const Color(0xFFF4F7F7)
+          : _darkBackground,
 
       appBarTheme: AppBarTheme(
         centerTitle: false,
@@ -61,9 +58,7 @@ class AppTheme {
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: scheme.outlineVariant.withValues(alpha: 0.6),
-          ),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
         ),
       ),
 
@@ -73,10 +68,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
 
@@ -87,24 +79,17 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
 
       navigationBarTheme: NavigationBarThemeData(
         height: 68,
         elevation: 0,
-        backgroundColor:
-            isLight ? Colors.white : const Color(0xFF090B18),
+        backgroundColor: isLight ? Colors.white : const Color(0xFF090B18),
         indicatorColor: scheme.primaryContainer,
         labelTextStyle: const WidgetStatePropertyAll(
-          TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
+          TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         ),
       ),
 
@@ -127,9 +112,7 @@ class AppTheme {
 
       dialogTheme: DialogThemeData(
         backgroundColor: isLight ? Colors.white : _darkCardHigh,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
     );
   }

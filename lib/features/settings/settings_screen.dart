@@ -1,4 +1,3 @@
-
 import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -75,10 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _showMessage(value ? 'Auto-save enabled' : 'Auto-save disabled');
   }
 
-  Future<void> _changeTheme(
-    BuildContext context,
-    ThemeMode mode,
-  ) async {
+  Future<void> _changeTheme(BuildContext context, ThemeMode mode) async {
     await AppThemeController.instance.setThemeMode(mode);
 
     if (!context.mounted) return;
@@ -95,18 +91,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 2),
-      ),
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
   }
 
-  Widget _sectionTitle(
-    BuildContext context,
-    String title,
-    IconData icon,
-  ) {
+  Widget _sectionTitle(BuildContext context, String title, IconData icon) {
     final theme = Theme.of(context);
 
     return Padding(
@@ -133,16 +122,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     VoidCallback? onTap,
   }) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 4,
-      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Icon(icon),
       title: Text(title),
       subtitle: Text(subtitle),
-      trailing: onTap == null
-          ? null
-          : const Icon(Icons.chevron_right_rounded),
+      trailing: onTap == null ? null : const Icon(Icons.chevron_right_rounded),
       onTap: onTap,
     );
   }
@@ -152,9 +136,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-      ),
+      appBar: AppBar(title: const Text('Settings')),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
@@ -168,11 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
 
-                  _sectionTitle(
-                    context,
-                    'Appearance',
-                    Icons.palette_outlined,
-                  ),
+                  _sectionTitle(context, 'Appearance', Icons.palette_outlined),
 
                   Card(
                     child: Padding(
@@ -189,23 +167,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             RadioListTile<ThemeMode>(
                               value: ThemeMode.dark,
                               title: const Text('Dark Mode'),
-                              subtitle: const Text(
-                                'Use the dark appearance',
-                              ),
-                              secondary: const Icon(
-                                Icons.dark_mode_outlined,
-                              ),
+                              subtitle: const Text('Use the dark appearance'),
+                              secondary: const Icon(Icons.dark_mode_outlined),
                             ),
                             const Divider(height: 1),
                             RadioListTile<ThemeMode>(
                               value: ThemeMode.light,
                               title: const Text('Light Mode'),
-                              subtitle: const Text(
-                                'Use the light appearance',
-                              ),
-                              secondary: const Icon(
-                                Icons.light_mode_outlined,
-                              ),
+                              subtitle: const Text('Use the light appearance'),
+                              secondary: const Icon(Icons.light_mode_outlined),
                             ),
                           ],
                         ),
@@ -225,9 +195,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ListTile(
                           leading: const Icon(Icons.high_quality_outlined),
                           title: const Text('Video Quality'),
-                          subtitle: const Text(
-                            'Choose your export resolution',
-                          ),
+                          subtitle: const Text('Choose your export resolution'),
                           trailing: DropdownButton<String>(
                             value: _videoQuality,
                             underline: const SizedBox(),
@@ -306,11 +274,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
 
-                  _sectionTitle(
-                    context,
-                    'About',
-                    Icons.info_outline_rounded,
-                  ),
+                  _sectionTitle(context, 'About', Icons.info_outline_rounded),
 
                   Card(
                     child: Column(
@@ -318,8 +282,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _settingsTile(
                           icon: Icons.smart_display_outlined,
                           title: 'PitchCut AI',
-                          subtitle:
-                              'Intelligent Presentation Video Editor and Speaking Coach',
+                          subtitle: 'Intelligent Presentation Video Editor and Speaking Coach',
                         ),
                         const Divider(height: 1),
                         _settingsTile(

@@ -1,4 +1,3 @@
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
@@ -77,10 +76,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       padding: const EdgeInsets.only(bottom: 12),
       child: Text(
         title,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-        ),
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -91,10 +87,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String value,
   }) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 4,
-      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Container(
         width: 42,
         height: 42,
@@ -102,27 +95,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
           color: const Color(0xFF8B5CF6).withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Icon(
-          icon,
-          color: const Color(0xFFB69CFF),
-          size: 21,
-        ),
+        child: Icon(icon, color: const Color(0xFFB69CFF), size: 21),
       ),
       title: Text(
         title,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Colors.grey,
-        ),
+        style: const TextStyle(fontSize: 13, color: Colors.grey),
       ),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 4),
         child: Text(
           value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ),
     );
@@ -139,9 +122,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final email = user?.email ?? 'No email available';
 
-    final initial = name.isNotEmpty
-        ? name[0].toUpperCase()
-        : 'U';
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
 
     return Scaffold(
       appBar: AppBar(
@@ -178,10 +159,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             gradient: const LinearGradient(
-                              colors: [
-                                Color(0xFF8B5CF6),
-                                Color(0xFF38BDF8),
-                              ],
+                              colors: [Color(0xFF8B5CF6), Color(0xFF38BDF8)],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
@@ -346,12 +324,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: Color(0xFFB69CFF),
                       ),
                       title: const Text('Settings'),
-                      subtitle: const Text(
-                        'Appearance and app preferences',
-                      ),
-                      trailing: const Icon(
-                        Icons.chevron_right_rounded,
-                      ),
+                      subtitle: const Text('Appearance and app preferences'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: () => context.push('/settings'),
                     ),
                   ),
@@ -367,19 +341,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ? const SizedBox(
                             width: 19,
                             height: 19,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.logout_rounded),
-                    label: Text(
-                      _isLoggingOut ? 'Logging out...' : 'Logout',
-                    ),
+                    label: Text(_isLoggingOut ? 'Logging out...' : 'Logout'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFFFF6B6B),
-                      side: const BorderSide(
-                        color: Color(0x66FF6B6B),
-                      ),
+                      side: const BorderSide(color: Color(0x66FF6B6B)),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
@@ -392,10 +360,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const Center(
                     child: Text(
                       'Made with care • PitchCut AI',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white38,
-                      ),
+                      style: TextStyle(fontSize: 12, color: Colors.white38),
                     ),
                   ),
                 ],

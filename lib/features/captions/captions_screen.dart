@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -46,9 +46,8 @@ class _CaptionsScreenState extends ConsumerState<CaptionsScreen> {
       await ref.read(captionRepositoryProvider).saveCaption(id, result);
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save: $e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not save: $e')));
       }
     }
   }
@@ -60,7 +59,9 @@ class _CaptionsScreenState extends ConsumerState<CaptionsScreen> {
     if (!Platform.isAndroid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Automatic captions are currently supported on Android only.'),
+          content: Text(
+            'Automatic captions are currently supported on Android only.',
+          ),
         ),
       );
       return;
@@ -234,77 +235,74 @@ class _CaptionsScreenState extends ConsumerState<CaptionsScreen> {
                       children: [
                         Text(_status),
                         const SizedBox(height: 8),
-                        LinearProgressIndicator(
-                          value: _progress / 100,
-                        ),
+                        LinearProgressIndicator(value: _progress / 100),
                         const SizedBox(height: 4),
                         Text('$_progress%'),
                       ],
                     ),
                   ),
                 Expanded(
-                  child: ref.watch(captionsProvider(id)).when(
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (error, _) =>
-                        Center(child: Text('Error: $error')),
-                    data: (captions) {
-                      if (captions.isEmpty) {
-                        return const Center(
-                          child: Text(
-                            'No captions yet. Tap + to add one or '
-                            'use the auto-captions button.',
-                            textAlign: TextAlign.center,
-                          ),
-                        );
-                      }
+                  child: ref
+                      .watch(captionsProvider(id))
+                      .when(
+                        loading: () =>
+                            const Center(child: CircularProgressIndicator()),
+                        error: (error, _) =>
+                            Center(child: Text('Error: $error')),
+                        data: (captions) {
+                          if (captions.isEmpty) {
+                            return const Center(
+                              child: Text(
+                                'No captions yet. Tap + to add one or '
+                                'use the auto-captions button.',
+                                textAlign: TextAlign.center,
+                              ),
+                            );
+                          }
 
-                      return ListView.separated(
-                        itemCount: captions.length,
-                        separatorBuilder: (_, _) =>
-                            const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final caption = captions[index];
+                          return ListView.separated(
+                            itemCount: captions.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final caption = captions[index];
 
-                          return Dismissible(
-                            key: ValueKey(caption.id),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              color: Theme.of(context).colorScheme.error,
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 16),
-                              child: const Icon(
-                                Icons.delete,
-                                color: Colors.white,
-                              ),
-                            ),
-                            onDismissed: (_) => ref
-                                .read(captionRepositoryProvider)
-                                .deleteCaption(id, caption.id),
-                            child: ListTile(
-                              title: Text(caption.text),
-                              subtitle: Text(
-                                '${_formatMs(caption.startMs)} - '
-                                '${_formatMs(caption.endMs)}',
-                              ),
-                              onTap: () => _addOrEdit(
-                                context,
-                                ref,
-                                id,
-                                existing: caption,
-                              ),
-                            ),
+                              return Dismissible(
+                                key: ValueKey(caption.id),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  color: Theme.of(context).colorScheme.error,
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 16),
+                                  child: const Icon(
+                                    Icons.delete,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                onDismissed: (_) => ref
+                                    .read(captionRepositoryProvider)
+                                    .deleteCaption(id, caption.id),
+                                child: ListTile(
+                                  title: Text(caption.text),
+                                  subtitle: Text(
+                                    '${_formatMs(caption.startMs)} - '
+                                    '${_formatMs(caption.endMs)}',
+                                  ),
+                                  onTap: () => _addOrEdit(
+                                    context,
+                                    ref,
+                                    id,
+                                    existing: caption,
+                                  ),
+                                ),
+                              );
+                            },
                           );
                         },
-                      );
-                    },
-                  ),
+                      ),
                 ),
               ],
             ),
     );
   }
 }
-
-
-

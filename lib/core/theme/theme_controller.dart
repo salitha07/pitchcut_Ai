@@ -1,4 +1,3 @@
-
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,9 +16,7 @@ class AppThemeController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final savedTheme = prefs.getString(_themeKey);
 
-    _themeMode = savedTheme == 'light'
-        ? ThemeMode.light
-        : ThemeMode.dark;
+    _themeMode = savedTheme == 'light' ? ThemeMode.light : ThemeMode.dark;
 
     notifyListeners();
   }

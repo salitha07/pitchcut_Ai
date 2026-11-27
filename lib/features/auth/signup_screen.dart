@@ -1,4 +1,3 @@
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
@@ -58,9 +57,7 @@ class _SignupScreenState extends State<SignupScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Account created successfully!'),
-        ),
+        const SnackBar(content: Text('Account created successfully!')),
       );
 
       context.go('/home');
@@ -120,9 +117,7 @@ class _SignupScreenState extends State<SignupScreen> {
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   InputDecoration _inputDecoration({
@@ -132,22 +127,12 @@ class _SignupScreenState extends State<SignupScreen> {
   }) {
     return InputDecoration(
       hintText: hint,
-      prefixIcon: Icon(
-        icon,
-        color: _muted,
-        size: 21,
-      ),
+      prefixIcon: Icon(icon, color: _muted, size: 21),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: _surface,
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 16,
-      ),
-      hintStyle: const TextStyle(
-        color: Color(0xFF758097),
-        fontSize: 14,
-      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      hintStyle: const TextStyle(color: Color(0xFF758097), fontSize: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: _border),
@@ -158,10 +143,7 @@ class _SignupScreenState extends State<SignupScreen> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: _purple,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: _purple, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
@@ -169,10 +151,7 @@ class _SignupScreenState extends State<SignupScreen> {
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: Color(0xFFEF6464),
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: Color(0xFFEF6464), width: 1.5),
       ),
     );
   }
@@ -207,10 +186,7 @@ class _SignupScreenState extends State<SignupScreen> {
       textInputAction: textInputAction,
       autofillHints: autofillHints,
       onFieldSubmitted: (_) => onSubmitted?.call(),
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 14,
-      ),
+      style: const TextStyle(color: Colors.white, fontSize: 14),
       decoration: _inputDecoration(
         hint: hint,
         icon: Icons.lock_outline_rounded,
@@ -218,9 +194,7 @@ class _SignupScreenState extends State<SignupScreen> {
           onPressed: onToggle,
           tooltip: obscure ? 'Show password' : 'Hide password',
           icon: Icon(
-            obscure
-                ? Icons.visibility_outlined
-                : Icons.visibility_off_outlined,
+            obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
             color: _muted,
             size: 20,
           ),
@@ -277,10 +251,7 @@ class _SignupScreenState extends State<SignupScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 24,
-              vertical: 25,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 25),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 430),
               child: AutofillGroup(
@@ -371,9 +342,8 @@ class _SignupScreenState extends State<SignupScreen> {
                             return 'Please enter your email address.';
                           }
 
-                          if (!RegExp(
-                            r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                          ).hasMatch(email)) {
+                          if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                              .hasMatch(email)) {
                             return 'Enter a valid email address.';
                           }
 
@@ -389,9 +359,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         hint: 'Create a password',
                         controller: _passwordController,
                         obscure: _obscurePassword,
-                        autofillHints: const [
-                          AutofillHints.newPassword,
-                        ],
+                        autofillHints: const [AutofillHints.newPassword],
                         onToggle: () {
                           setState(() {
                             _obscurePassword = !_obscurePassword;
@@ -430,13 +398,10 @@ class _SignupScreenState extends State<SignupScreen> {
                         controller: _confirmPasswordController,
                         obscure: _obscureConfirmPassword,
                         textInputAction: TextInputAction.done,
-                        autofillHints: const [
-                          AutofillHints.newPassword,
-                        ],
+                        autofillHints: const [AutofillHints.newPassword],
                         onToggle: () {
                           setState(() {
-                            _obscureConfirmPassword =
-                                !_obscureConfirmPassword;
+                            _obscureConfirmPassword = !_obscureConfirmPassword;
                           });
                         },
                         onSubmitted: () {
@@ -463,8 +428,9 @@ class _SignupScreenState extends State<SignupScreen> {
                           onPressed: _isLoading ? null : _signup,
                           style: FilledButton.styleFrom(
                             backgroundColor: _purple,
-                            disabledBackgroundColor:
-                                _purple.withValues(alpha: 0.5),
+                            disabledBackgroundColor: _purple.withValues(
+                              alpha: 0.5,
+                            ),
                             foregroundColor: Colors.white,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
@@ -491,10 +457,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                       ),
                                     ),
                                     SizedBox(width: 9),
-                                    Icon(
-                                      Icons.arrow_forward_rounded,
-                                      size: 19,
-                                    ),
+                                    Icon(Icons.arrow_forward_rounded, size: 19),
                                   ],
                                 ),
                         ),
@@ -515,10 +478,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           const Flexible(
                             child: Text(
                               'Already have an account?',
-                              style: TextStyle(
-                                color: _muted,
-                                fontSize: 13,
-                              ),
+                              style: TextStyle(color: _muted, fontSize: 13),
                             ),
                           ),
                           TextButton(

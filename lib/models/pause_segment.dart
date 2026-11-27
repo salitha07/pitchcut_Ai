@@ -1,4 +1,3 @@
-
 class PauseSegment {
   final int startMs;
   final int endMs;

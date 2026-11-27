@@ -1,4 +1,3 @@
-
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -40,14 +39,8 @@ class _SplashScreenState extends State<SplashScreen>
       curve: Curves.easeOut,
     );
 
-    _scaleAnimation = Tween<double>(
-      begin: 0.88,
-      end: 1,
-    ).animate(
-      CurvedAnimation(
-        parent: _introController,
-        curve: Curves.easeOutBack,
-      ),
+    _scaleAnimation = Tween<double>(begin: 0.88, end: 1).animate(
+      CurvedAnimation(parent: _introController, curve: Curves.easeOutBack),
     );
 
     _floatController = AnimationController(
@@ -88,11 +81,7 @@ class _SplashScreenState extends State<SplashScreen>
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF10142A),
-                    background,
-                    Color(0xFF0D1022),
-                  ],
+                  colors: [Color(0xFF10142A), background, Color(0xFF0D1022)],
                 ),
               ),
             ),
@@ -112,10 +101,7 @@ class _SplashScreenState extends State<SplashScreen>
           Positioned(
             bottom: 130,
             right: -120,
-            child: _GlowCircle(
-              color: cyan.withValues(alpha: 0.12),
-              size: 300,
-            ),
+            child: _GlowCircle(color: cyan.withValues(alpha: 0.12), size: 300),
           ),
 
           // Main layout
@@ -171,11 +157,7 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                         child: const Row(
                           children: [
-                            Icon(
-                              Icons.auto_awesome,
-                              size: 12,
-                              color: cyan,
-                            ),
+                            Icon(Icons.auto_awesome, size: 12, color: cyan),
                             SizedBox(width: 5),
                             Text(
                               'AI POWERED',
@@ -273,12 +255,7 @@ class _SplashScreenState extends State<SplashScreen>
 
                 // Bottom section
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    26,
-                    10,
-                    26,
-                    18,
-                  ),
+                  padding: const EdgeInsets.fromLTRB(26, 10, 26, 18),
                   child: Column(
                     children: [
                       // Get Started button
@@ -288,10 +265,7 @@ class _SplashScreenState extends State<SplashScreen>
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
-                              colors: [
-                                Color(0xFF9B70FF),
-                                Color(0xFF7445E8),
-                              ],
+                              colors: [Color(0xFF9B70FF), Color(0xFF7445E8)],
                             ),
                             borderRadius: BorderRadius.circular(18),
                             boxShadow: [
@@ -325,10 +299,7 @@ class _SplashScreenState extends State<SplashScreen>
                                   ),
                                 ),
                                 SizedBox(width: 12),
-                                Icon(
-                                  Icons.arrow_forward_rounded,
-                                  size: 20,
-                                ),
+                                Icon(Icons.arrow_forward_rounded, size: 20),
                               ],
                             ),
                           ),
@@ -341,11 +312,7 @@ class _SplashScreenState extends State<SplashScreen>
                       const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
-                            Icons.bolt_rounded,
-                            color: cyan,
-                            size: 13,
-                          ),
+                          Icon(Icons.bolt_rounded, color: cyan, size: 13),
                           SizedBox(width: 5),
                           Text(
                             'POWERED BY ARTIFICIAL INTELLIGENCE',
@@ -371,14 +338,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   Widget _buildHeroVisual() {
     return AnimatedBuilder(
-      animation: Listenable.merge([
-        _floatController,
-        _glowController,
-      ]),
+      animation: Listenable.merge([_floatController, _glowController]),
       builder: (context, child) {
-        final float = math.sin(
-          _floatController.value * math.pi,
-        ) * 7;
+        final float = math.sin(_floatController.value * math.pi) * 7;
 
         final glow = 0.16 + (_glowController.value * 0.12);
 
@@ -519,17 +481,16 @@ class _SplashScreenState extends State<SplashScreen>
                                     (index) => Expanded(
                                       child: Container(
                                         height: 4,
-                                        margin: const EdgeInsets.only(
-                                          right: 3,
-                                        ),
+                                        margin: const EdgeInsets.only(right: 3),
                                         decoration: BoxDecoration(
                                           color: index < 5
                                               ? cyan
                                               : Colors.white.withValues(
                                                   alpha: 0.18,
                                                 ),
-                                          borderRadius:
-                                              BorderRadius.circular(5),
+                                          borderRadius: BorderRadius.circular(
+                                            5,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -589,25 +550,16 @@ class _GlowCircle extends StatelessWidget {
   final Color color;
   final double size;
 
-  const _GlowCircle({
-    required this.color,
-    required this.size,
-  });
+  const _GlowCircle({required this.color, required this.size});
 
   @override
   Widget build(BuildContext context) {
     return ImageFiltered(
-      imageFilter: ImageFilter.blur(
-        sigmaX: 45,
-        sigmaY: 45,
-      ),
+      imageFilter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
       child: Container(
         width: size,
         height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color,
-        ),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
       ),
     );
   }
@@ -630,30 +582,18 @@ class _GlassBadge extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
       child: BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: 12,
-          sigmaY: 12,
-        ),
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 11,
-            vertical: 10,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
           decoration: BoxDecoration(
             color: const Color(0xFF20243B).withValues(alpha: 0.85),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.12),
-            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                icon,
-                color: color,
-                size: 14,
-              ),
+              Icon(icon, color: color, size: 14),
               const SizedBox(width: 6),
               Text(
                 label,
@@ -677,33 +617,21 @@ class _FeatureChip extends StatelessWidget {
   final IconData icon;
   final String label;
 
-  const _FeatureChip({
-    required this.icon,
-    required this.label,
-  });
+  const _FeatureChip({required this.icon, required this.label});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 11,
-        vertical: 9,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
       decoration: BoxDecoration(
         color: const Color(0xFF171B30),
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.08),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            color: const Color(0xFF38BDF8),
-            size: 13,
-          ),
+          Icon(icon, color: const Color(0xFF38BDF8), size: 13),
           const SizedBox(width: 6),
           Text(
             label,

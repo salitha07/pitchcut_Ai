@@ -155,7 +155,6 @@ internal class CaptionBitmapOverlay(
                 Color.BLACK
             )
         }
-
         val boundedText =
             if (
                 text.codePointCount(0, text.length) <=
@@ -282,7 +281,6 @@ internal class CaptionBitmapOverlay(
 
         var candidate = text
         var layout = legacyLayout(candidate)
-
         if (layout.lineCount <= maxLines) {
             return layout
         }

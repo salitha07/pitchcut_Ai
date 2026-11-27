@@ -27,18 +27,23 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
   late final TextEditingController _text;
   late final TextEditingController _start;
   late final TextEditingController _end;
+
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    final c = widget.existing;
-    _text = TextEditingController(text: c?.text ?? '');
+
+    final caption = widget.existing;
+
+    _text = TextEditingController(text: caption?.text ?? '');
+
     _start = TextEditingController(
-      text: ((c?.startMs ?? 0) / 1000).toStringAsFixed(1),
+      text: ((caption?.startMs ?? 0) / 1000).toStringAsFixed(1),
     );
+
     _end = TextEditingController(
-      text: ((c?.endMs ?? 2000) / 1000).toStringAsFixed(1),
+      text: ((caption?.endMs ?? 2000) / 1000).toStringAsFixed(1),
     );
   }
 
@@ -59,24 +64,40 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
       setState(() => _error = 'Caption text cannot be empty.');
       return;
     }
+
     if (startSec == null || endSec == null) {
       setState(() => _error = 'Start and end must be numbers (seconds).');
       return;
     }
+
+    if (!startSec.isFinite || !endSec.isFinite) {
+      setState(() => _error = 'Please enter valid time values.');
+      return;
+    }
+
     final startMs = (startSec * 1000).round();
     final endMs = (endSec * 1000).round();
+
     if (startMs < 0 || endMs <= startMs) {
       setState(() => _error = 'End time must be greater than start time.');
       return;
     }
 
+    final existing = widget.existing;
+
+    // Keep the original source timestamp aligned with timeline edits.
+    final sourceStartMs = existing?.sourceStartMs == null
+        ? null
+        : existing!.sourceStartMs! + (startMs - existing.startMs);
+
     Navigator.of(context).pop(
       Caption(
-        id: widget.existing?.id ??
-            DateTime.now().microsecondsSinceEpoch.toString(),
+        id: existing?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         startMs: startMs,
         endMs: endMs,
         text: text,
+        sourceClipId: existing?.sourceClipId,
+        sourceStartMs: sourceStartMs,
       ),
     );
   }
@@ -97,12 +118,16 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
             TextField(
               controller: _start,
               decoration: const InputDecoration(labelText: 'Start (seconds)'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             TextField(
               controller: _end,
               decoration: const InputDecoration(labelText: 'End (seconds)'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             if (_error != null)
               Padding(
