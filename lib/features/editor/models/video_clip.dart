@@ -1,5 +1,7 @@
+
 import 'dart:typed_data';
 
+import 'clip_background.dart';
 import 'crop_rect.dart';
 
 class VideoClip {
@@ -14,22 +16,20 @@ class VideoClip {
     this.thumbnail,
     this.rotationDegrees = 0,
     this.crop,
+    this.background = ClipBackground.none,
   }) : sourceDuration = sourceDuration ?? duration;
 
   final String path;
   final String name;
   final Duration duration;
-
-  /// Stable M2 [Clip.id] for the original source, when this item came from M2.
   final String? sourceClipId;
-
-  /// Stable identity for this particular timeline segment.
   final String? timelineItemId;
   final Duration sourceStart;
   final Duration sourceDuration;
   final Uint8List? thumbnail;
   final int rotationDegrees;
   final CropRect? crop;
+  final ClipBackground background;
 
   Duration get sourceEnd => sourceStart + duration;
 
@@ -44,6 +44,8 @@ class VideoClip {
     Uint8List? thumbnail,
     int? rotationDegrees,
     CropRect? crop,
+    bool clearCrop = false,
+    ClipBackground? background,
   }) => VideoClip(
     path: path ?? this.path,
     name: name ?? this.name,
@@ -54,7 +56,8 @@ class VideoClip {
     sourceDuration: sourceDuration ?? this.sourceDuration,
     thumbnail: thumbnail ?? this.thumbnail,
     rotationDegrees: rotationDegrees ?? this.rotationDegrees,
-    crop: crop ?? this.crop,
+    crop: clearCrop ? null : (crop ?? this.crop),
+    background: background ?? this.background,
   );
 
   Map<String, Object> toJson() => {
@@ -67,6 +70,7 @@ class VideoClip {
     'sourceDurationMs': sourceDuration.inMilliseconds,
     'rotationDegrees': rotationDegrees,
     if (crop != null) 'crop': crop!.toJson(),
+    'background': background.toJson(),
   };
 
   factory VideoClip.fromJson(Map<String, Object?> json) => VideoClip(
@@ -75,14 +79,24 @@ class VideoClip {
     duration: Duration(milliseconds: json['durationMs']! as int),
     sourceClipId: json['sourceClipId'] as String?,
     timelineItemId: json['timelineItemId'] as String?,
-    sourceStart: Duration(milliseconds: json['sourceStartMs'] as int? ?? 0),
+    sourceStart: Duration(
+      milliseconds: json['sourceStartMs'] as int? ?? 0,
+    ),
     sourceDuration: Duration(
       milliseconds:
-          json['sourceDurationMs'] as int? ?? json['durationMs']! as int,
+          json['sourceDurationMs'] as int? ??
+          json['durationMs']! as int,
     ),
     rotationDegrees: json['rotationDegrees'] as int? ?? 0,
-    crop: json['crop'] is Map<String, dynamic>
-        ? CropRect.fromJson(json['crop']! as Map<String, dynamic>)
+    crop: json['crop'] is Map
+        ? CropRect.fromJson(
+            Map<String, dynamic>.from(json['crop']! as Map),
+          )
         : null,
+    background: json['background'] is Map
+        ? ClipBackground.fromJson(
+            Map<String, dynamic>.from(json['background']! as Map),
+          )
+        : ClipBackground.none,
   );
 }

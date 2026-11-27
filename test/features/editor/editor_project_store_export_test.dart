@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pitchcut_ai/features/editor/models/clip_background.dart';
 import 'package:pitchcut_ai/features/editor/models/trim_range.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/models/video_export_state.dart';
@@ -12,8 +13,10 @@ void main() {
   late Directory sourceDirectory;
   late File original;
   late File exported;
+
   const projectId = '/recordings/original.mp4';
   final timestamp = DateTime.utc(2026, 11, 7, 12);
+
   const clip = VideoClip(
     path: '/recordings/original.mp4',
     name: 'original.mp4',
@@ -22,21 +25,53 @@ void main() {
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('editor-project-test-');
+
     sourceDirectory = Directory('${root.path}/sources')..createSync();
+
     original = File('${sourceDirectory.path}/original.mp4')
       ..writeAsBytesSync([1, 2, 3]);
+
     exported = File('${sourceDirectory.path}/export.mp4')
       ..writeAsBytesSync([4, 5, 6, 7]);
   });
 
   tearDown(() async {
-    if (await root.exists()) await root.delete(recursive: true);
+    if (await root.exists()) {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('saves and reloads clip background settings', () async {
+    const background = ClipBackground(
+      type: ClipBackgroundType.solid,
+      solidColor: 0xFF123456,
+    );
+
+    final store = EditorProjectStore(rootDirectory: root);
+
+    await store.save(
+      projectId: projectId,
+      clips: [clip.copyWith(background: background)],
+      selectedClipIndex: 0,
+      trimRange: const TrimRange(
+        start: Duration.zero,
+        end: Duration(seconds: 12),
+      ),
+    );
+
+    final restartedStore = EditorProjectStore(rootDirectory: root);
+
+    final reloaded = await restartedStore.load(projectId);
+
+    expect(reloaded, isNotNull);
+    expect(reloaded!.clips.single.background, background);
   });
 
   test(
     'saves and reloads export metadata associated with its project',
     () async {
       final store = EditorProjectStore(rootDirectory: root);
+
       await store.save(
         projectId: projectId,
         clips: const [clip],
@@ -60,6 +95,7 @@ void main() {
         isTrue,
         reason: 'Original source is preserved.',
       );
+
       expect(saved.projectId, projectId);
       expect(saved.duration, const Duration(seconds: 9));
       expect(saved.quality, VideoExportQuality.p720);
@@ -68,11 +104,14 @@ void main() {
 
       final restartedStore = EditorProjectStore(rootDirectory: root);
       final reloaded = await restartedStore.load(projectId);
+
       expect(reloaded, isNotNull);
       expect(reloaded!.clips.single.path, clip.path);
       expect(reloaded.exports.single.filePath, saved.filePath);
       expect(reloaded.exports.single.projectId, projectId);
+
       expect(await restartedStore.load('/different/project'), isNull);
+
       expect(await restartedStore.listProjectIds(), [projectId]);
     },
   );
@@ -81,6 +120,7 @@ void main() {
     'missing export does not create a project record or partial video',
     () async {
       final store = EditorProjectStore(rootDirectory: root);
+
       await expectLater(
         store.saveExportedVideo(
           projectId: projectId,
@@ -91,15 +131,20 @@ void main() {
         ),
         throwsA(isA<FileSystemException>()),
       );
+
       expect(await store.load(projectId), isNull);
+
       final exports = Directory('${root.path}/project_exports');
+
       expect(await exports.exists(), isFalse);
     },
   );
 
   test('empty snapshot is reported as invalid rather than missing', () async {
     final store = EditorProjectStore(rootDirectory: root);
+
     final snapshot = await _snapshotFile(root, projectId);
+
     await snapshot.parent.create(recursive: true);
     await snapshot.writeAsString('');
 
@@ -113,6 +158,7 @@ void main() {
         ),
       ),
     );
+
     expect(await snapshot.readAsString(), isEmpty);
   });
 
@@ -120,15 +166,20 @@ void main() {
     'truncated JSON snapshot is reported as invalid and preserved',
     () async {
       final store = EditorProjectStore(rootDirectory: root);
+
       final snapshot = await _snapshotFile(root, projectId);
+
       await snapshot.parent.create(recursive: true);
+
       const malformed = '{"clips":[{"path":';
+
       await snapshot.writeAsString(malformed);
 
       await expectLater(
         store.load(projectId),
         throwsA(isA<InvalidEditorSnapshotException>()),
       );
+
       expect(await snapshot.readAsString(), malformed);
     },
   );
@@ -137,9 +188,13 @@ void main() {
     'save with explicit exports does not replace an invalid snapshot',
     () async {
       final store = EditorProjectStore(rootDirectory: root);
+
       final snapshot = await _snapshotFile(root, projectId);
+
       await snapshot.parent.create(recursive: true);
+
       const malformed = '{"clips":';
+
       await snapshot.writeAsString(malformed);
 
       await expectLater(
@@ -155,12 +210,14 @@ void main() {
         ),
         throwsA(isA<InvalidEditorSnapshotException>()),
       );
+
       expect(await snapshot.readAsString(), malformed);
     },
   );
 
   test('metadata write failure rolls back the copied video', () async {
     File('${root.path}/editor_projects').writeAsStringSync('not a directory');
+
     final store = EditorProjectStore(rootDirectory: root);
 
     await expectLater(
@@ -175,15 +232,18 @@ void main() {
     );
 
     final projectExports = Directory('${root.path}/project_exports');
+
     final files = await projectExports
         .list(recursive: true)
         .where((entry) => entry is File)
         .toList();
+
     expect(files, isEmpty);
   });
 }
 
 Future<File> _snapshotFile(Directory root, String projectId) async {
   final safeId = base64Url.encode(utf8.encode(projectId)).replaceAll('=', '');
+
   return File('${root.path}/editor_projects/$safeId.json');
 }

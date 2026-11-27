@@ -137,7 +137,8 @@ class TimelineOperations {
 
   static bool canMerge(VideoClip first, VideoClip second) =>
       first.rotationDegrees == second.rotationDegrees &&
-      first.crop == second.crop;
+      first.crop == second.crop &&
+      first.background == second.background;
 
   static bool canMergeWithoutRendering(VideoClip first, VideoClip second) =>
       canMerge(first, second) &&
@@ -166,7 +167,10 @@ class TimelineOperations {
             duration: first.duration + second.duration,
             sourceDuration: first.duration + second.duration,
           )
-        : renderedClip?.copyWith(name: '${first.name} + ${second.name}') ??
+        : renderedClip?.copyWith(
+                name: '${first.name} + ${second.name}',
+                background: first.background,
+              ) ??
               (throw ArgumentError(
                 'A rendered clip is required to merge separate source ranges.',
               ));

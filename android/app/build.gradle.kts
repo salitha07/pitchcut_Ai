@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
@@ -8,14 +8,20 @@ plugins {
 val media3Version = "1.5.1"
 
 dependencies {
+    // AndroidX Media3
     implementation("androidx.media3:media3-transformer:$media3Version")
     implementation("androidx.media3:media3-effect:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")
     implementation("androidx.media3:media3-exoplayer:$media3Version")
 
+    // Google ML Kit - Selfie Segmentation
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+
+    // Unit testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
 
+    // Android instrumentation testing
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

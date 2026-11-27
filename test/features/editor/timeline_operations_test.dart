@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/models/crop_rect.dart';
+import 'package:pitchcut_ai/features/editor/models/clip_background.dart';
 import 'package:pitchcut_ai/features/editor/services/timeline_operations.dart';
 
 void main() {
@@ -18,6 +19,16 @@ void main() {
     path: '/recordings/third.mp4',
     name: 'third.mp4',
     duration: Duration(seconds: 3),
+  );
+
+  const blueBackground = ClipBackground(
+    type: ClipBackgroundType.solid,
+    solidColor: 0xFF0000FF,
+  );
+
+  const redBackground = ClipBackground(
+    type: ClipBackgroundType.solid,
+    solidColor: 0xFFFF0000,
   );
 
   group('TimelineOperations.split', () {
@@ -92,8 +103,11 @@ void main() {
         duration: Duration(seconds: 4),
         sourceStart: Duration(seconds: 5),
       );
+
       expect(TimelineOperations.canMerge(left, right), isTrue);
+
       final result = TimelineOperations.merge([first, left, right, third], 1);
+
       expect(result, hasLength(3));
       expect(result[1].sourceStart, const Duration(seconds: 2));
       expect(result[1].duration, const Duration(seconds: 7));
@@ -110,21 +124,83 @@ void main() {
         () => TimelineOperations.merge([first, second], 0),
         throwsArgumentError,
       );
+
       const rendered = VideoClip(
         path: '/editor/merged.mp4',
         name: 'rendered',
         duration: Duration(seconds: 13),
       );
+
       final result = TimelineOperations.merge(
         [first, second, third],
         0,
         renderedClip: rendered,
       );
+
       expect(result, hasLength(2));
       expect(result.first.path, rendered.path);
       expect(result.first.name, 'first.mp4 + second.mp4');
       expect(result.first.duration, const Duration(seconds: 13));
       expect(result.last, third);
+    });
+
+    test('allows merging clips with equal background values', () {
+      final left = first.copyWith(background: blueBackground);
+      final right = first.copyWith(
+        name: 'next segment',
+        sourceStart: const Duration(seconds: 8),
+        duration: const Duration(seconds: 2),
+        background: const ClipBackground(
+          type: ClipBackgroundType.solid,
+          solidColor: 0xFF0000FF,
+        ),
+      );
+
+      expect(left.background, right.background);
+      expect(TimelineOperations.canMerge(left, right), isTrue);
+      expect(TimelineOperations.canMergeWithoutRendering(left, right), isTrue);
+
+      final result = TimelineOperations.merge([left, right], 0);
+
+      expect(result, hasLength(1));
+      expect(result.first.background, blueBackground);
+      expect(result.first.duration, const Duration(seconds: 10));
+    });
+
+    test('rejects clips with different backgrounds', () {
+      final left = first.copyWith(background: blueBackground);
+      final right = first.copyWith(
+        name: 'next segment',
+        sourceStart: const Duration(seconds: 8),
+        background: redBackground,
+      );
+
+      expect(TimelineOperations.canMerge(left, right), isFalse);
+      expect(
+        () => TimelineOperations.merge([left, right], 0),
+        throwsArgumentError,
+      );
+    });
+
+    test('preserves background after rendered merge', () {
+      final left = first.copyWith(background: blueBackground);
+      final right = second.copyWith(background: blueBackground);
+
+      const rendered = VideoClip(
+        path: '/editor/background-merged.mp4',
+        name: 'rendered',
+        duration: Duration(seconds: 13),
+      );
+
+      final result = TimelineOperations.merge(
+        [left, right],
+        0,
+        renderedClip: rendered,
+      );
+
+      expect(result, hasLength(1));
+      expect(result.first.path, rendered.path);
+      expect(result.first.background, blueBackground);
     });
 
     test('rejects clips with different rotation or crop edits', () {
@@ -134,6 +210,7 @@ void main() {
         duration: Duration(seconds: 2),
         sourceStart: Duration(seconds: 8),
       );
+
       expect(
         TimelineOperations.canMerge(
           first,
@@ -141,6 +218,7 @@ void main() {
         ),
         isFalse,
       );
+
       expect(
         TimelineOperations.canMerge(
           first,
@@ -155,21 +233,28 @@ void main() {
 
   test('rotation cycles in 90 degree steps and crop clamps coordinates', () {
     var clip = first;
+
     for (final expected in [90, 180, 270, 0]) {
       clip = TimelineOperations.rotate(clip);
       expect(clip.rotationDegrees, expected);
     }
+
     const crop = CropRect(left: 0.2, top: 0.2, right: 0.8, bottom: 0.8);
+
     final moved = crop.move(0.8, -0.5);
+
     expect(moved.left, closeTo(0.4, 0.000001));
     expect(moved.top, 0);
     expect(moved.right, 1);
     expect(moved.bottom, closeTo(0.6, 0.000001));
+
     final resized = crop.resize(left: 0.95, bottom: 0.01);
+
     expect(resized.isValid, isTrue);
     expect(resized.right, lessThanOrEqualTo(1));
     expect(resized.bottom, lessThanOrEqualTo(1));
     expect(TimelineOperations.crop(first, crop).crop, crop);
+
     expect(
       () => TimelineOperations.crop(
         first,
