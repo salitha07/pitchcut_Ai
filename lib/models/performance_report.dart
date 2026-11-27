@@ -1,4 +1,3 @@
-
 import 'pause_segment.dart';
 
 class PerformanceReport {
@@ -34,18 +33,18 @@ class PerformanceReport {
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'projectId': projectId,
-        'createdAt': createdAt,
-        'score': score,
-        'pauses': pauses.map((pause) => pause.toJson()).toList(),
-        'faceScore': faceScore,
-        'stabilityScore': stabilityScore,
-        'paceScore': paceScore,
-        'tips': tips,
-        'reportType': reportType,
-        'clipId': clipId,
-      };
+    'id': id,
+    'projectId': projectId,
+    'createdAt': createdAt,
+    'score': score,
+    'pauses': pauses.map((pause) => pause.toJson()).toList(),
+    'faceScore': faceScore,
+    'stabilityScore': stabilityScore,
+    'paceScore': paceScore,
+    'tips': tips,
+    'reportType': reportType,
+    'clipId': clipId,
+  };
 
   factory PerformanceReport.fromJson(Map<String, dynamic> json) {
     final rawPauses = json['pauses'] as List? ?? [];

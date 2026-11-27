@@ -6,16 +6,16 @@ class QuickActionTile extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    required this.color,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -27,10 +27,10 @@ class QuickActionTile extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
+                  color: color.withValues(alpha: 0.14),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: scheme.onPrimaryContainer),
+                child: Icon(icon, color: color),
               ),
               const SizedBox(height: 8),
               Text(label, style: Theme.of(context).textTheme.labelLarge),

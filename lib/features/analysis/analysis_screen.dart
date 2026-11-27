@@ -1,4 +1,3 @@
-
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -58,13 +57,9 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   void _loadProjectData(String projectId) {
     _dataProjectId = projectId;
 
-    _clipsFuture = ref
-        .read(projectRepositoryProvider)
-        .getClips(projectId);
+    _clipsFuture = ref.read(projectRepositoryProvider).getClips(projectId);
 
-    _reportsFuture = ref
-        .read(reportRepositoryProvider)
-        .getReports(projectId);
+    _reportsFuture = ref.read(reportRepositoryProvider).getReports(projectId);
   }
 
   Future<void> _refreshReports() async {
@@ -73,9 +68,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     if (projectId == null) return;
 
     setState(() {
-      _reportsFuture = ref
-          .read(reportRepositoryProvider)
-          .getReports(projectId);
+      _reportsFuture = ref.read(reportRepositoryProvider).getReports(projectId);
     });
   }
 
@@ -274,8 +267,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         final sourceStartMs = clip.sourceStart.inMilliseconds;
         final sourceEndMs = clip.sourceEnd.inMilliseconds;
 
-        if (pause.startMs >= sourceStartMs &&
-            pause.endMs <= sourceEndMs) {
+        if (pause.startMs >= sourceStartMs && pause.endMs <= sourceEndMs) {
           matchingClip = clip;
           break;
         }
@@ -286,8 +278,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       final localStartMs =
           pause.startMs - matchingClip.sourceStart.inMilliseconds;
 
-      final localEndMs =
-          pause.endMs - matchingClip.sourceStart.inMilliseconds;
+      final localEndMs = pause.endMs - matchingClip.sourceStart.inMilliseconds;
 
       if (localStartMs < 500 ||
           localEndMs <= localStartMs ||
@@ -377,13 +368,11 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 items: projects.map((project) {
                   return DropdownMenuItem(
                     value: project.id,
-                    child: Text(
-                      project.title,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child: Text(project.title, overflow: TextOverflow.ellipsis),
                   );
                 }).toList(),
-                onChanged: _isAnalysing ||
+                onChanged:
+                    _isAnalysing ||
                         _analysingClipIds.isNotEmpty ||
                         _isOpeningEditor
                     ? null
@@ -417,9 +406,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                   builder: (context, clipSnapshot) {
                     if (clipSnapshot.connectionState ==
                         ConnectionState.waiting) {
-                      return const Center(
-                        child: CircularProgressIndicator(),
-                      );
+                      return const Center(child: CircularProgressIndicator());
                     }
 
                     if (clipSnapshot.hasError) {
@@ -461,23 +448,23 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
 
                         return Column(
                           children: clips.map((clip) {
-                            final videoReports = reports.where(
-                              (report) =>
-                                  report.reportType == 'video' &&
-                                  report.clipId == clip.id,
-                            ).toList();
+                            final videoReports = reports
+                                .where(
+                                  (report) =>
+                                      report.reportType == 'video' &&
+                                      report.clipId == clip.id,
+                                )
+                                .toList();
 
                             videoReports.sort(
-                              (a, b) =>
-                                  b.createdAt.compareTo(a.createdAt),
+                              (a, b) => b.createdAt.compareTo(a.createdAt),
                             );
 
                             final latestReport = videoReports.isEmpty
                                 ? null
                                 : videoReports.first;
 
-                            final isBusy =
-                                _analysingClipIds.contains(clip.id);
+                            final isBusy = _analysingClipIds.contains(clip.id);
 
                             return _buildVideoCard(
                               clip: clip,
@@ -496,7 +483,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 SizedBox(
                   height: 50,
                   child: FilledButton.icon(
-                    onPressed: _isAnalysing ||
+                    onPressed:
+                        _isAnalysing ||
                             _analysingClipIds.isNotEmpty ||
                             _isOpeningEditor
                         ? null
@@ -505,9 +493,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.analytics_outlined),
                     label: Text(
@@ -558,9 +544,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                             child: ListTile(
                               leading: const Icon(Icons.assessment_outlined),
                               title: Text('Project Score: ${report.score}/100'),
-                              subtitle: Text(
-                                _formatDate(report.createdAt),
-                              ),
+                              subtitle: Text(_formatDate(report.createdAt)),
                               trailing: const Icon(Icons.chevron_right),
                               onTap: () => _showReport(report),
                             ),
@@ -632,11 +616,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             if (latestReport != null)
               Row(
                 children: [
-                  const Icon(
-                    Icons.check_circle,
-                    color: Colors.green,
-                    size: 18,
-                  ),
+                  const Icon(Icons.check_circle, color: Colors.green, size: 18),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -661,7 +641,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: isBusy ||
+                onPressed:
+                    isBusy ||
                         _isAnalysing ||
                         _isOpeningEditor ||
                         _analysingClipIds.isNotEmpty
@@ -678,8 +659,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                   isBusy
                       ? 'Analysing Video...'
                       : latestReport == null
-                          ? 'Analyse This Video'
-                          : 'Analyse Again',
+                      ? 'Analyse This Video'
+                      : 'Analyse Again',
                 ),
               ),
             ),
@@ -701,10 +682,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   Widget _errorCard(String message) {
     return Card(
       color: Theme.of(context).colorScheme.errorContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Text(message),
-      ),
+      child: Padding(padding: const EdgeInsets.all(16), child: Text(message)),
     );
   }
 
@@ -733,8 +711,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
               const SizedBox(height: 12),
               CircleAvatar(
                 radius: 58,
-                backgroundColor:
-                    Theme.of(context).colorScheme.primaryContainer,
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
                 child: Text(
                   '${report.score}',
                   style: Theme.of(context).textTheme.headlineLarge,
@@ -793,7 +770,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             width: double.infinity,
             height: 48,
             child: FilledButton.icon(
-              onPressed: _isOpeningEditor ||
+              onPressed:
+                  _isOpeningEditor ||
                       _isAnalysing ||
                       _analysingClipIds.isNotEmpty
                   ? null
@@ -821,10 +799,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
 
         const SizedBox(height: 24),
 
-        Text(
-          'Improvement Tips',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
+        Text('Improvement Tips', style: Theme.of(context).textTheme.titleLarge),
 
         const SizedBox(height: 8),
 

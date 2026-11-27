@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:pitchcut_ai/features/editor/engine/editor_engine.dart';
 import 'package:pitchcut_ai/features/editor/engine/method_channel_editor_engine.dart';
 import 'package:pitchcut_ai/models/caption.dart';
+import 'package:pitchcut_ai/features/editor/models/clip_background.dart';
+import 'package:pitchcut_ai/features/editor/services/native_ai_preview_service.dart';
 
 // TEMPORARY, remove before release.
 class EngineDebugScreen extends StatefulWidget {
@@ -31,6 +33,13 @@ class _EngineDebugScreenState extends State<EngineDebugScreen> {
   final _cropWidthController = TextEditingController(text: '320');
   final _cropHeightController = TextEditingController(text: '180');
   final _engine = MethodChannelEditorEngine();
+
+  // Temporary native AI preview test.
+  final _nativePreviewService = NativeAiPreviewService();
+  NativePreviewSession? _nativePreview;
+  NativePreviewState? _nativePreviewState;
+  StreamSubscription<NativePreviewState>? _nativePreviewSubscription;
+  bool _nativePreviewBusy = false;
 
   String? _clipPath;
   final List<String> _mergePaths = [];
@@ -62,6 +71,19 @@ class _EngineDebugScreenState extends State<EngineDebugScreen> {
         }),
       );
     }
+    final previewSubscription = _nativePreviewSubscription;
+    _nativePreviewSubscription = null;
+    if (previewSubscription != null) {
+      unawaited(previewSubscription.cancel());
+    }
+    if (_nativePreview != null) {
+      unawaited(
+        _nativePreviewService.dispose().catchError((Object error) {
+          debugPrint('Native preview cleanup failed: $error');
+        }),
+      );
+    }
+
     _captionController.dispose();
     _captionStartController.dispose();
     _captionEndController.dispose();
@@ -116,6 +138,9 @@ class _EngineDebugScreenState extends State<EngineDebugScreen> {
         );
         return null;
       }
+
+      await _disposeNativePreview();
+      if (!mounted) return null;
 
       setState(() {
         _clipPath = path;
@@ -493,6 +518,167 @@ class _EngineDebugScreenState extends State<EngineDebugScreen> {
     }
   }
 
+  Future<void> _createNativePreview() async {
+    final path = _clipPath;
+    if (path == null || _nativePreviewBusy) return;
+
+    setState(() {
+      _nativePreviewBusy = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await _disposeNativePreview();
+
+      _nativePreviewSubscription = _nativePreviewService.states.listen(
+        (state) {
+          if (!mounted) return;
+          setState(() => _nativePreviewState = state);
+        },
+        onError: (Object error) {
+          if (mounted) {
+            _showError('NATIVE_PREVIEW_EVENT', error.toString());
+          }
+        },
+      );
+
+      final session = await _nativePreviewService.create(
+        path: path,
+        background: const ClipBackground(
+          type: ClipBackgroundType.solid,
+          solidColor: 0xFF172033,
+        ),
+      );
+
+      if (!mounted) {
+        await _nativePreviewService.dispose();
+        return;
+      }
+
+      setState(() {
+        _nativePreview = session;
+        _nativePreviewState = NativePreviewState(
+          positionMs: session.positionMs,
+          durationMs: session.durationMs,
+          isPlaying: session.isPlaying,
+        );
+      });
+    } catch (error) {
+      await _nativePreviewSubscription?.cancel();
+      _nativePreviewSubscription = null;
+
+      if (mounted) {
+        _showError('NATIVE_PREVIEW_CREATE', error.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _nativePreviewBusy = false);
+      }
+    }
+  }
+
+  Future<void> _toggleNativePreview() async {
+    if (_nativePreview == null || _nativePreviewBusy) return;
+
+    try {
+      if (_nativePreviewState?.isPlaying ?? false) {
+        await _nativePreviewService.pause();
+      } else {
+        await _nativePreviewService.play();
+      }
+    } catch (error) {
+      if (mounted) {
+        _showError('NATIVE_PREVIEW_PLAYBACK', error.toString());
+      }
+    }
+  }
+
+  Future<void> _disposeNativePreview() async {
+    final hadPreview = _nativePreview != null;
+
+    final subscription = _nativePreviewSubscription;
+    _nativePreviewSubscription = null;
+
+    if (subscription != null) {
+      await subscription.cancel();
+    }
+
+    _nativePreview = null;
+    _nativePreviewState = null;
+
+    if (hadPreview) {
+      try {
+        await _nativePreviewService.dispose();
+      } catch (error) {
+        debugPrint('Native preview dispose failed: $error');
+      }
+    }
+
+    if (mounted) setState(() {});
+  }
+
+  String _formatPreviewTime(int milliseconds) {
+    final seconds = (milliseconds / 1000).floor();
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
+  Widget _nativePreviewSection() {
+    final session = _nativePreview;
+    final state = _nativePreviewState;
+
+    return _operationSection('Native AI Preview Test', [
+      const Text('Separate Media3 player rendered through a Flutter texture.'),
+      const SizedBox(height: 12),
+      if (_nativePreviewBusy) const Center(child: CircularProgressIndicator()),
+      if (session != null) ...[
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: Texture(textureId: session.textureId),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Position: ${_formatPreviewTime(state?.positionMs ?? 0)}'
+          ' / ${_formatPreviewTime(state?.durationMs ?? session.durationMs)}',
+        ),
+        Text('Playback: ${(state?.isPlaying ?? false) ? 'Playing' : 'Paused'}'),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _nativePreviewBusy ? null : _toggleNativePreview,
+                icon: Icon(
+                  (state?.isPlaying ?? false) ? Icons.pause : Icons.play_arrow,
+                ),
+                label: Text((state?.isPlaying ?? false) ? 'Pause' : 'Play'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _nativePreviewBusy ? null : _disposeNativePreview,
+                icon: const Icon(Icons.stop),
+                label: const Text('Dispose'),
+              ),
+            ),
+          ],
+        ),
+      ] else
+        FilledButton.icon(
+          onPressed: _clipPath == null || _nativePreviewBusy
+              ? null
+              : _createNativePreview,
+          icon: const Icon(Icons.play_circle_outline),
+          label: const Text('Create Native Preview'),
+        ),
+    ]);
+  }
+
   int _readInteger(TextEditingController controller, String name) {
     final value = int.tryParse(controller.text);
     if (value == null) {
@@ -605,6 +791,8 @@ class _EngineDebugScreenState extends State<EngineDebugScreen> {
                 SelectableText('Selected clip: $path'),
               ],
             ]),
+            _nativePreviewSection(),
+            const SizedBox(height: 4),
             _operationSection('Export', [
               Form(
                 key: _formKey,
@@ -802,7 +990,7 @@ class _EngineDebugScreenState extends State<EngineDebugScreen> {
                     .map(
                       (degrees) => DropdownMenuItem(
                         value: degrees,
-                        child: Text('$degrees°'),
+                        child: Text('$degreesÂ°'),
                       ),
                     )
                     .toList(),

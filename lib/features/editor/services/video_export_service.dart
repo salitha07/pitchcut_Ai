@@ -27,8 +27,14 @@ class VideoExportService implements VideoExportBackend {
     List<m7.Caption> captions = const [],
     required ExportProgressCallback onProgress,
   }) async {
-    if (clips.isEmpty) throw ArgumentError('There are no clips to export.');
-    if (_isExporting) throw StateError('An export is already running.');
+    if (clips.isEmpty) {
+      throw ArgumentError('There are no clips to export.');
+    }
+
+    if (_isExporting) {
+      throw StateError('An export is already running.');
+    }
+
     _isExporting = true;
     _cancelRequested = false;
 
@@ -36,34 +42,50 @@ class VideoExportService implements VideoExportBackend {
       final items = clips
           .map((clip) {
             final crop = clip.crop;
+
             return EditorTimelineItem(
               path: clip.path,
               startMs: clip.sourceStart.inMilliseconds,
               endMs: clip.sourceEnd.inMilliseconds,
               rotationDegrees: clip.rotationDegrees,
               crop: crop == null ? null : _engineCrop(crop),
+              background: clip.background,
             );
           })
           .toList(growable: false);
+
       String? outputPath;
+
       await for (final event in _engine.exportTimeline(
         items: items,
         captions: captions,
         targetHeight: quality.height,
       )) {
         onProgress(event.progress);
-        if (event.outputPath != null) outputPath = event.outputPath;
+
+        if (event.outputPath != null) {
+          outputPath = event.outputPath;
+        }
       }
+
       if (_cancelRequested) {
-        if (outputPath != null) await discardOutput(outputPath);
+        if (outputPath != null) {
+          await discardOutput(outputPath);
+        }
+
         throw const VideoExportCancelled();
       }
+
       if (outputPath == null || outputPath.isEmpty) {
         throw StateError('The exporter did not return an output file.');
       }
+
       return outputPath;
     } on PlatformException catch (error) {
-      if (error.code == 'CANCELLED') throw const VideoExportCancelled();
+      if (error.code == 'CANCELLED') {
+        throw const VideoExportCancelled();
+      }
+
       throw StateError(error.message ?? 'Video export failed (${error.code}).');
     } finally {
       _isExporting = false;
@@ -76,9 +98,11 @@ class VideoExportService implements VideoExportBackend {
     var right = crop.right;
     var top = crop.top;
     var bottom = crop.bottom;
-    // M5 permits this tolerance at its minimum crop size. Expand only that
-    // boundary case so both Dart and Kotlin's strict minimum checks agree.
+
+    // M5 permits this tolerance at its minimum crop size.
+    // Expand only that boundary case so Dart and Kotlin agree.
     const tolerance = 1e-9;
+
     if (right - left < EditorCrop.minimumDimension &&
         right - left + tolerance >= EditorCrop.minimumDimension) {
       if (right + tolerance <= 1) {
@@ -87,6 +111,7 @@ class VideoExportService implements VideoExportBackend {
         left -= tolerance;
       }
     }
+
     if (bottom - top < EditorCrop.minimumDimension &&
         bottom - top + tolerance >= EditorCrop.minimumDimension) {
       if (bottom + tolerance <= 1) {
@@ -95,12 +120,14 @@ class VideoExportService implements VideoExportBackend {
         top -= tolerance;
       }
     }
+
     return EditorCrop(left: left, top: top, right: right, bottom: bottom);
   }
 
   @override
   Future<void> cancelExport() async {
     if (!_isExporting) return;
+
     _cancelRequested = true;
     await _engine.cancelExport();
   }
@@ -108,10 +135,16 @@ class VideoExportService implements VideoExportBackend {
   @override
   Future<bool> verifyOutput(String path) async {
     final file = File(path);
-    if (!await file.exists() || await file.length() == 0) return false;
+
+    if (!await file.exists() || await file.length() == 0) {
+      return false;
+    }
+
     final controller = VideoPlayerController.file(file);
+
     try {
       await controller.initialize();
+
       return controller.value.isInitialized &&
           !controller.value.hasError &&
           controller.value.duration > Duration.zero &&
@@ -127,6 +160,9 @@ class VideoExportService implements VideoExportBackend {
   @override
   Future<void> discardOutput(String path) async {
     final file = File(path);
-    if (await file.exists()) await file.delete();
+
+    if (await file.exists()) {
+      await file.delete();
+    }
   }
 }

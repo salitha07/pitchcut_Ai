@@ -1,4 +1,3 @@
-﻿
 import 'dart:io';
 
 import 'package:whisper_wrapper/whisper_wrapper.dart';
@@ -66,9 +65,7 @@ class AutoCaptionService {
     for (var i = 0; i < sources.length; i++) {
       final source = sources[i];
 
-      onStatus?.call(
-        'Transcribing video ${i + 1} of ${sources.length}...',
-      );
+      onStatus?.call('Transcribing video ${i + 1} of ${sources.length}...');
 
       final wavFile = File('${source.localPath}.wav');
       final wavExistedBefore = await wavFile.exists();
@@ -81,8 +78,8 @@ class AutoCaptionService {
           withSegments: true,
           splitOnWord: false,
           onProgress: (percent) {
-            final overall =
-                (((i + percent / 100) / sources.length) * 100).round();
+            final overall = (((i + percent / 100) / sources.length) * 100)
+                .round();
 
             onProgress?.call(overall.clamp(0, 100));
           },
@@ -132,15 +129,13 @@ class AutoCaptionService {
       final segments = segmentsBySource[source.id] ?? [];
 
       final sourceStartMs = timelineClip.sourceStart.inMilliseconds;
-      final sourceEndMs =
-          sourceStartMs + timelineClip.duration.inMilliseconds;
+      final sourceEndMs = sourceStartMs + timelineClip.duration.inMilliseconds;
 
       for (final segment in segments) {
         final segmentStartMs = segment.fromTs.inMilliseconds;
         final segmentEndMs = segment.toTs.inMilliseconds;
 
-        if (segmentEndMs <= sourceStartMs ||
-            segmentStartMs >= sourceEndMs) {
+        if (segmentEndMs <= sourceStartMs || segmentStartMs >= sourceEndMs) {
           continue;
         }
 
@@ -161,16 +156,9 @@ class AutoCaptionService {
         captions.add(
           Caption(
             id: 'auto_${DateTime.now().microsecondsSinceEpoch}_${captions.length}',
-            startMs: (
-              timelineOffsetMs +
-              clippedStartMs -
-              sourceStartMs
-            ).toInt(),
-            endMs: (
-              timelineOffsetMs +
-              clippedEndMs -
-              sourceStartMs
-            ).toInt(),
+            startMs: (timelineOffsetMs + clippedStartMs - sourceStartMs)
+                .toInt(),
+            endMs: (timelineOffsetMs + clippedEndMs - sourceStartMs).toInt(),
             text: text,
 
             // Preserve the original source video identity.

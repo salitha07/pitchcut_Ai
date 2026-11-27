@@ -1,4 +1,3 @@
-
 class Caption {
   final String id;
   final int startMs;

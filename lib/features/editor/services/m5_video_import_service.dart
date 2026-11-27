@@ -1,4 +1,3 @@
-
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -52,10 +51,7 @@ class VideoPlayerMetadataReader implements M5VideoMetadataReader {
 }
 
 abstract interface class M5VideoImporter {
-  Future<Project> importVideo({
-    required XFile video,
-    required String title,
-  });
+  Future<Project> importVideo({required XFile video, required String title});
 
   Future<Project> importVideos({
     required List<XFile> videos,
@@ -77,8 +73,7 @@ class M5VideoImportService implements M5VideoImporter {
   final M5VideoMetadataReader metadataReader;
   final Future<bool> Function(String path) _fileExists;
 
-  static Future<bool> _defaultFileExists(String path) =>
-      File(path).exists();
+  static Future<bool> _defaultFileExists(String path) => File(path).exists();
 
   /// Imports one video into a new project.
   /// Kept for existing single-video workflows.

@@ -1,4 +1,3 @@
-
 import 'package:material_ui/material_ui.dart';
 
 import '../../../models/caption.dart';
@@ -67,9 +66,7 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
     }
 
     if (startSec == null || endSec == null) {
-      setState(
-        () => _error = 'Start and end must be numbers (seconds).',
-      );
+      setState(() => _error = 'Start and end must be numbers (seconds).');
       return;
     }
 
@@ -82,9 +79,7 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
     final endMs = (endSec * 1000).round();
 
     if (startMs < 0 || endMs <= startMs) {
-      setState(
-        () => _error = 'End time must be greater than start time.',
-      );
+      setState(() => _error = 'End time must be greater than start time.');
       return;
     }
 
@@ -97,8 +92,7 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
 
     Navigator.of(context).pop(
       Caption(
-        id: existing?.id ??
-            DateTime.now().microsecondsSinceEpoch.toString(),
+        id: existing?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         startMs: startMs,
         endMs: endMs,
         text: text,
@@ -111,9 +105,7 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(
-        widget.existing == null ? 'Add caption' : 'Edit caption',
-      ),
+      title: Text(widget.existing == null ? 'Add caption' : 'Edit caption'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -125,18 +117,14 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
             ),
             TextField(
               controller: _start,
-              decoration: const InputDecoration(
-                labelText: 'Start (seconds)',
-              ),
+              decoration: const InputDecoration(labelText: 'Start (seconds)'),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
             ),
             TextField(
               controller: _end,
-              decoration: const InputDecoration(
-                labelText: 'End (seconds)',
-              ),
+              decoration: const InputDecoration(labelText: 'End (seconds)'),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
@@ -146,9 +134,7 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
                 padding: const EdgeInsets.only(top: 12),
                 child: Text(
                   _error!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                  ),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
           ],
@@ -159,10 +145,7 @@ class _CaptionEditDialogState extends State<_CaptionEditDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: _save,
-          child: const Text('Save'),
-        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
       ],
     );
   }

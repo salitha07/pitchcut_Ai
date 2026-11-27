@@ -1,4 +1,7 @@
+
 import 'package:pitchcut_ai/models/caption.dart';
+
+import '../models/clip_background.dart';
 
 /// Normalized crop bounds in the rotated frame, with the origin at top-left.
 /// Each edge is in the inclusive range 0.0 to 1.0 and each dimension must be
@@ -11,6 +14,7 @@ class EditorCrop {
     required double bottom,
   }) {
     final values = [left, top, right, bottom];
+
     if (values.any((value) => !value.isFinite) ||
         left < 0 ||
         top < 0 ||
@@ -18,17 +22,27 @@ class EditorCrop {
         bottom > 1 ||
         right <= left ||
         bottom <= top) {
-      throw ArgumentError('Crop coordinates must form a normalized rectangle.');
+      throw ArgumentError(
+        'Crop coordinates must form a normalized rectangle.',
+      );
     }
-    if (right - left < minimumDimension || bottom - top < minimumDimension) {
+
+    if (right - left < minimumDimension ||
+        bottom - top < minimumDimension) {
       throw ArgumentError(
         'Crop width and height must each be at least $minimumDimension.',
       );
     }
+
     return EditorCrop._(left, top, right, bottom);
   }
 
-  const EditorCrop._(this.left, this.top, this.right, this.bottom);
+  const EditorCrop._(
+    this.left,
+    this.top,
+    this.right,
+    this.bottom,
+  );
 
   static const minimumDimension = 0.05;
 
@@ -38,11 +52,11 @@ class EditorCrop {
   final double bottom;
 
   Map<String, Object> toMap() => {
-    'left': left,
-    'top': top,
-    'right': right,
-    'bottom': bottom,
-  };
+        'left': left,
+        'top': top,
+        'right': right,
+        'bottom': bottom,
+      };
 }
 
 /// One ordered source segment in a timeline export request.
@@ -53,15 +67,22 @@ class EditorTimelineItem {
     required int endMs,
     int rotationDegrees = 0,
     EditorCrop? crop,
+    ClipBackground background = ClipBackground.none,
   }) {
     if (path.trim().isEmpty) {
-      throw ArgumentError.value(path, 'path', 'Must not be empty.');
+      throw ArgumentError.value(
+        path,
+        'path',
+        'Must not be empty.',
+      );
     }
+
     if (startMs < 0 || endMs <= startMs) {
       throw ArgumentError(
         'Timeline item must have startMs >= 0 and endMs > startMs.',
       );
     }
+
     if (!const {0, 90, 180, 270}.contains(rotationDegrees)) {
       throw ArgumentError.value(
         rotationDegrees,
@@ -69,7 +90,15 @@ class EditorTimelineItem {
         'Must be 0, 90, 180, or 270.',
       );
     }
-    return EditorTimelineItem._(path, startMs, endMs, rotationDegrees, crop);
+
+    return EditorTimelineItem._(
+      path,
+      startMs,
+      endMs,
+      rotationDegrees,
+      crop,
+      background,
+    );
   }
 
   const EditorTimelineItem._(
@@ -78,6 +107,7 @@ class EditorTimelineItem {
     this.endMs,
     this.rotationDegrees,
     this.crop,
+    this.background,
   );
 
   final String path;
@@ -85,19 +115,22 @@ class EditorTimelineItem {
   final int endMs;
   final int rotationDegrees;
   final EditorCrop? crop;
+  final ClipBackground background;
 
   Map<String, Object> toMap() => {
-    'path': path,
-    'startMs': startMs,
-    'endMs': endMs,
-    'rotationDegrees': rotationDegrees,
-    if (crop != null) 'crop': crop!.toMap(),
-  };
+        'path': path,
+        'startMs': startMs,
+        'endMs': endMs,
+        'rotationDegrees': rotationDegrees,
+        if (crop != null) 'crop': crop!.toMap(),
+        if (background.type != ClipBackgroundType.none)
+          'background': background.toJson(),
+      };
 }
 
 class ExportEvent {
-  final double progress; // 0.0 to 1.0
-  final String? outputPath; // set only on the final event
+  final double progress;
+  final String? outputPath;
 
   const ExportEvent(this.progress, [this.outputPath]);
 
@@ -126,13 +159,21 @@ abstract class EditorEngine {
   });
 
   /// Splits one clip at atMs. Returns [firstPartPath, secondPartPath].
-  Future<List<String>> cut({required String path, required int atMs});
+  Future<List<String>> cut({
+    required String path,
+    required int atMs,
+  });
 
   /// Joins clips end to end, in the order given.
-  Future<String> merge({required List<String> paths});
+  Future<String> merge({
+    required List<String> paths,
+  });
 
   /// degrees is 90, 180 or 270 (clockwise).
-  Future<String> rotate({required String path, required int degrees});
+  Future<String> rotate({
+    required String path,
+    required int degrees,
+  });
 
   /// Crop rectangle in pixels of the source video.
   Future<String> crop({
@@ -147,14 +188,15 @@ abstract class EditorEngine {
   Stream<ExportEvent> export({
     required List<String> clipPaths,
     List<Caption> captions = const [],
-    int? targetHeight, // e.g. 720 or 1080
+    int? targetHeight,
   });
 
   /// Renders ordered timeline segments with per-item trims and video effects.
   ///
   /// Repeated paths are valid for split segments. Crop bounds are normalized
   /// in the rotated frame; rotation is applied before crop. Source audio is
-  /// preserved. [targetHeight] must be 480, 720, or 1080.
+  /// preserved. Non-default background settings are sent per timeline item.
+  /// [targetHeight] must be 480, 720, or 1080.
   Stream<ExportEvent> exportTimeline({
     required List<EditorTimelineItem> items,
     List<Caption> captions = const [],
@@ -166,8 +208,13 @@ abstract class EditorEngine {
     required int targetHeight,
   }) {
     if (items.isEmpty) {
-      throw ArgumentError.value(items, 'items', 'Must not be empty.');
+      throw ArgumentError.value(
+        items,
+        'items',
+        'Must not be empty.',
+      );
     }
+
     if (!const {480, 720, 1080}.contains(targetHeight)) {
       throw ArgumentError.value(
         targetHeight,

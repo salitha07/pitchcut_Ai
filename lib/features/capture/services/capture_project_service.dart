@@ -1,4 +1,3 @@
-
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -187,11 +186,7 @@ class CaptureProjectService {
     }
 
     for (final item in videos) {
-      _validateVideoMetadata(
-        item.durationMs,
-        item.width,
-        item.height,
-      );
+      _validateVideoMetadata(item.durationMs, item.width, item.height);
     }
 
     final projectId = _uuid.v4();
@@ -299,9 +294,7 @@ class CaptureProjectService {
         projectId: projectId,
       );
     } catch (cleanupError) {
-      debugPrint(
-        'Local cleanup failed for $projectId: $cleanupError',
-      );
+      debugPrint('Local cleanup failed for $projectId: $cleanupError');
     }
   }
 

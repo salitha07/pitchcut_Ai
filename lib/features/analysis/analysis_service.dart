@@ -1,4 +1,3 @@
-
 import 'package:flutter/foundation.dart';
 
 import '../../data/caption_repository.dart';
@@ -175,9 +174,7 @@ class AnalysisService {
       final clip = clips[clipIndex];
 
       try {
-        final samples = await editorEngine.getLoudnessSamples(
-          clip.localPath,
-        );
+        final samples = await editorEngine.getLoudnessSamples(clip.localPath);
 
         final detectedPauses = _pauseDetectionService.detectPauses(
           samples,
@@ -186,10 +183,7 @@ class AnalysisService {
 
         allPauses.addAll(
           detectedPauses.map(
-            (pause) => pause.copyWith(
-              clipId: clip.id,
-              clipIndex: clipIndex,
-            ),
+            (pause) => pause.copyWith(clipId: clip.id, clipIndex: clipIndex),
           ),
         );
 
@@ -314,9 +308,10 @@ class AnalysisService {
   int? _average(List<int> values) {
     if (values.isEmpty) return null;
 
-    return (values.reduce((a, b) => a + b) / values.length)
-        .round()
-        .clamp(0, 100);
+    return (values.reduce((a, b) => a + b) / values.length).round().clamp(
+      0,
+      100,
+    );
   }
 
   List<String> _generateTips({

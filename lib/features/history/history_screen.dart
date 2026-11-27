@@ -13,13 +13,9 @@ class HistoryScreen extends ConsumerWidget {
     final projectsAsync = ref.watch(historyProjectsProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('History'),
-      ),
+      appBar: AppBar(title: const Text('History')),
       body: projectsAsync.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(),
-        ),
+        loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -28,9 +24,7 @@ class HistoryScreen extends ConsumerWidget {
         ),
         data: (projectList) {
           if (projectList.isEmpty) {
-            return const Center(
-              child: Text('No project history yet.'),
-            );
+            return const Center(child: Text('No project history yet.'));
           }
 
           final projects = projectList.toList()
@@ -45,9 +39,7 @@ class HistoryScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
               ...projects.map(
-                (project) => _HistoryProjectCard(
-                  project: project,
-                ),
+                (project) => _HistoryProjectCard(project: project),
               ),
             ],
           );
@@ -58,53 +50,41 @@ class HistoryScreen extends ConsumerWidget {
 }
 
 class _HistoryProjectCard extends ConsumerWidget {
-  const _HistoryProjectCard({
-    required this.project,
-  });
+  const _HistoryProjectCard({required this.project});
 
   final Project project;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reportsAsync = ref.watch(
-      projectReportsProvider(project.id),
-    );
+    final reportsAsync = ref.watch(projectReportsProvider(project.id));
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: reportsAsync.when(
         loading: () => ListTile(
-          leading: const CircleAvatar(
-            child: Icon(Icons.history),
-          ),
+          leading: const CircleAvatar(child: Icon(Icons.history)),
           title: Text(project.title),
           subtitle: const Text('Loading reports...'),
         ),
         error: (error, stack) => ListTile(
-          leading: const CircleAvatar(
-            child: Icon(Icons.history),
-          ),
+          leading: const CircleAvatar(child: Icon(Icons.history)),
           title: Text(project.title),
           subtitle: const Text('Could not load reports'),
         ),
         data: (reports) => ListTile(
-          leading: const CircleAvatar(
-            child: Icon(Icons.history),
-          ),
+          leading: const CircleAvatar(child: Icon(Icons.history)),
           title: Text(project.title),
           subtitle: Text(
             reports.isEmpty
                 ? 'No performance reports yet'
                 : '${reports.length} reports • '
-                    'Latest score: ${reports.first.score}/100',
+                      'Latest score: ${reports.first.score}/100',
           ),
           trailing: const Icon(Icons.chevron_right),
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => ProjectHistoryScreen(
-                  project: project,
-                ),
+                builder: (_) => ProjectHistoryScreen(project: project),
               ),
             );
           },

@@ -45,7 +45,7 @@ class MainActivity : FlutterActivity() {
     @OptIn(UnstableApi::class)
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        editorMethodHandler = EditorMethodHandler(this, flutterEngine.dartExecutor.binaryMessenger)
+        editorMethodHandler = EditorMethodHandler(this, flutterEngine.renderer, flutterEngine.dartExecutor.binaryMessenger)
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, "pitchcut_ai/video_export_progress")
             .also { channel ->
                 videoProgressChannel = channel
