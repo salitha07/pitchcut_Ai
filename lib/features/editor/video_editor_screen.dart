@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pitchcut_ai/features/editor/models/clip_background.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pitchcut_ai/features/editor/models/trim_range.dart';
 import 'package:pitchcut_ai/features/editor/models/crop_rect.dart';
@@ -14,6 +16,7 @@ import 'package:pitchcut_ai/features/editor/services/editor_project_store.dart';
 import 'package:pitchcut_ai/features/editor/services/project_clip_adapter.dart';
 import 'package:pitchcut_ai/features/editor/services/timeline_operations.dart';
 import 'package:pitchcut_ai/features/editor/services/video_trim_service.dart';
+import 'package:pitchcut_ai/features/editor/services/native_ai_preview_service.dart';
 import 'package:pitchcut_ai/features/editor/video_export_screen.dart';
 import 'package:pitchcut_ai/features/editor/widgets/video_timeline.dart';
 import 'package:pitchcut_ai/features/editor/widgets/crop_frame_editor.dart';
@@ -68,6 +71,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   List<SavedExport> _savedExports = const [];
   final Set<String> _dismissedSuggestionIds = {};
   VideoPlayerController? _controller;
+  final NativeAiPreviewService _nativeAiPreviewService =
+      NativeAiPreviewService();
+  NativePreviewSession? _nativePreviewSession;
   String? _loadError;
   bool _isLoading = true;
   bool _isTransitioning = false;
@@ -75,11 +81,44 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
   bool _isTrimming = false;
   bool _isExporting = false;
   bool _isCropping = false;
+  bool _backgroundApplyToAll = false;
   CropRect _draftCrop = CropRect.full;
   int? _mergeFirstIndex;
   int _selectedClipIndex = 0;
   int _controllerGeneration = 0;
   Duration _timelinePosition = Duration.zero;
+  final ValueNotifier<Duration> _playbackPosition = ValueNotifier<Duration>(
+    Duration.zero,
+  );
+  DateTime _lastPlaybackUiUpdate = DateTime.fromMillisecondsSinceEpoch(0);
+  Future<void> _togglePlayback() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    if (controller.value.isPlaying) {
+      _isPlaybackActive = false;
+      await controller.pause();
+      await _pauseNativePreview();
+      if (mounted) setState(() {});
+    } else {
+      if (_timelinePosition >= _totalDuration) {
+        await _seekToTimeline(Duration.zero);
+      } else if (controller.value.position <
+              _clips[_selectedClipIndex].sourceStart + _trimRange.start ||
+          controller.value.position >=
+              _clips[_selectedClipIndex].sourceStart + _trimRange.end) {
+        await controller.seekTo(
+          _clips[_selectedClipIndex].sourceStart + _trimRange.start,
+        );
+        _setTimelinePosition(_clipStart(_selectedClipIndex) + _trimRange.start);
+      }
+      _isPlaybackActive = true;
+      await controller.play();
+      await _playNativePreview();
+      if (mounted) setState(() {});
+    }
+  }
+
   Future<void> _persistenceQueue = Future<void>.value();
   TrimRange _trimRange = const TrimRange(
     start: Duration.zero,
@@ -88,6 +127,13 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
 
   Duration get _totalDuration =>
       _clips.fold(Duration.zero, (total, clip) => total + clip.duration);
+
+  void _setTimelinePosition(Duration position) {
+    _timelinePosition = position;
+    if (_playbackPosition.value != position) {
+      _playbackPosition.value = position;
+    }
+  }
 
   bool get _isBusy => _isTrimming || _isExporting;
 
@@ -190,6 +236,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       _controller = controller;
       controller.addListener(_onVideoChanged);
       setState(() => _isLoading = false);
+      unawaited(_refreshNativePreview());
       await _persistProject();
     } catch (error) {
       await controller?.dispose();
@@ -312,6 +359,358 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     return 'This video could not be loaded. Choose another video or try again.';
   }
 
+  Future<void> _pickBackgroundImage() async {
+    try {
+      final file = await FilePicker.pickFile(
+        dialogTitle: 'Choose an AI background image',
+        type: FileType.image,
+      );
+      if (!mounted || file == null) return;
+
+      final sourcePath = file.path;
+      if (sourcePath == null || sourcePath.isEmpty) {
+        _showMessage('Could not access the selected image.');
+        return;
+      }
+
+      final source = File(sourcePath);
+      if (!await source.exists()) {
+        _showMessage('The selected image could not be found.');
+        return;
+      }
+
+      final extensionIndex = sourcePath.lastIndexOf('.');
+      var extension = extensionIndex >= 0
+          ? sourcePath.substring(extensionIndex).toLowerCase()
+          : '.img';
+
+      if (!['.png', '.jpg', '.jpeg', '.webp', '.gif'].contains(extension)) {
+        extension = '.img';
+      }
+
+      final appDirectory = await getApplicationSupportDirectory();
+      final backgroundDirectory = Directory(
+        '${appDirectory.path}/ai_backgrounds',
+      );
+      await backgroundDirectory.create(recursive: true);
+
+      final destination = File(
+        '${backgroundDirectory.path}/background_${DateTime.now().microsecondsSinceEpoch}$extension',
+      );
+      await source.copy(destination.path);
+
+      if (!mounted) return;
+
+      await _applyClipBackground(
+        ClipBackground(
+          type: ClipBackgroundType.image,
+          imagePath: destination.path,
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not select the background image: $error');
+      }
+    }
+  }
+
+  Future<Color?> _selectBackgroundColor({
+    required String title,
+    required Color initialColor,
+  }) {
+    const colors = <Color>[
+      Color(0xFF0B1020),
+      Color(0xFF172554),
+      Color(0xFF1D4ED8),
+      Color(0xFF0891B2),
+      Color(0xFF047857),
+      Color(0xFF65A30D),
+      Color(0xFFCA8A04),
+      Color(0xFFEA580C),
+      Color(0xFFDC2626),
+      Color(0xFFBE185D),
+      Color(0xFF9333EA),
+      Color(0xFF6D28D9),
+      Color(0xFF64748B),
+      Color(0xFF9CA3AF),
+      Color(0xFFE5E7EB),
+      Color(0xFFFFFFFF),
+    ];
+
+    return showDialog<Color>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final color in colors)
+              InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: () => Navigator.of(dialogContext).pop(color),
+                child: CircleAvatar(
+                  radius: 19,
+                  backgroundColor: color,
+                  child: color == initialColor
+                      ? const Icon(Icons.check, color: Colors.white)
+                      : null,
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _chooseSolidBackground() async {
+    final color = await _selectBackgroundColor(
+      title: 'Choose background color',
+      initialColor: const Color(0xFF172554),
+    );
+    if (!mounted || color == null) return;
+
+    await _applyClipBackground(
+      ClipBackground(
+        type: ClipBackgroundType.solid,
+        solidColor: color.toARGB32(),
+      ),
+    );
+  }
+
+  Future<void> _chooseGradientBackground() async {
+    final start = await _selectBackgroundColor(
+      title: 'Choose gradient start color',
+      initialColor: const Color(0xFF2563EB),
+    );
+    if (!mounted || start == null) return;
+
+    final end = await _selectBackgroundColor(
+      title: 'Choose gradient end color',
+      initialColor: const Color(0xFF9333EA),
+    );
+    if (!mounted || end == null) return;
+
+    await _applyClipBackground(
+      ClipBackground(
+        type: ClipBackgroundType.gradient,
+        gradientStartColor: start.toARGB32(),
+        gradientEndColor: end.toARGB32(),
+      ),
+    );
+  }
+
+  Future<void> _choosePresetBackground() async {
+    const presets = <({String id, String label, List<Color> colors})>[
+      (
+        id: 'studio',
+        label: 'Studio',
+        colors: [Color(0xFF111827), Color(0xFF374151)],
+      ),
+      (
+        id: 'sunset',
+        label: 'Sunset',
+        colors: [Color(0xFF7C2D12), Color(0xFFEC4899)],
+      ),
+      (
+        id: 'ocean',
+        label: 'Ocean',
+        colors: [Color(0xFF082F49), Color(0xFF0EA5E9)],
+      ),
+      (
+        id: 'forest',
+        label: 'Forest',
+        colors: [Color(0xFF052E16), Color(0xFF22C55E)],
+      ),
+    ];
+
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text(
+                'Choose a background preset',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            for (final preset in presets)
+              ListTile(
+                leading: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    gradient: LinearGradient(
+                      colors: preset.colors,
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                ),
+                title: Text(preset.label),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).pop(preset.id),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted || selected == null) return;
+
+    await _applyClipBackground(
+      ClipBackground(type: ClipBackgroundType.preset, presetId: selected),
+    );
+  }
+
+  Future<void> _applyClipBackground(ClipBackground background) async {
+    if (_clips.isEmpty || _isBusy || _isCropping) return;
+
+    final before = _captureState();
+    final updated = List<VideoClip>.of(_clips);
+
+    if (_backgroundApplyToAll) {
+      for (var index = 0; index < updated.length; index++) {
+        updated[index] = updated[index].copyWith(background: background);
+      }
+    } else {
+      updated[_selectedClipIndex] = updated[_selectedClipIndex].copyWith(
+        background: background,
+      );
+    }
+
+    setState(() {
+      _clips
+        ..clear()
+        ..addAll(updated);
+    });
+
+    _recordEdit(before);
+    unawaited(_refreshNativePreview());
+    await _persistProject();
+
+    if (mounted) {
+      _showMessage(
+        background.type == ClipBackgroundType.none
+            ? 'Background removed.'
+            : 'Background settings applied.',
+      );
+    }
+  }
+
+  Widget _buildAiBackgroundStudio() {
+    final current = _clips[_selectedClipIndex].background;
+    final backgroundLabel = switch (current.type) {
+      ClipBackgroundType.none => 'Original background',
+      ClipBackgroundType.image => 'Image background',
+      ClipBackgroundType.solid => 'Solid color background',
+      ClipBackgroundType.gradient => 'Gradient background',
+      ClipBackgroundType.preset => 'Preset: ${current.presetId ?? 'Unknown'}',
+    };
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: ExpansionTile(
+        key: const ValueKey('ai-background-studio'),
+        leading: const Icon(Icons.auto_awesome),
+        title: const Text('AI Background Studio'),
+        subtitle: Text(backgroundLabel),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Choose which clips receive the background:',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(height: 8),
+          DropdownButton<String>(
+            isExpanded: true,
+            value: _backgroundApplyToAll ? 'all' : 'selected',
+            items: const [
+              DropdownMenuItem(value: 'selected', child: Text('Selected Clip')),
+              DropdownMenuItem(value: 'all', child: Text('All Clips')),
+            ],
+            onChanged: _isBusy || _isCropping
+                ? null
+                : (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _backgroundApplyToAll = value == 'all';
+                    });
+                  },
+          ),
+          const SizedBox(height: 8),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Background type',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _isBusy || _isCropping ? null : _pickBackgroundImage,
+                icon: const Icon(Icons.image_outlined),
+                label: const Text('Image'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isBusy || _isCropping
+                    ? null
+                    : _chooseSolidBackground,
+                icon: const Icon(Icons.palette_outlined),
+                label: const Text('Solid Color'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isBusy || _isCropping
+                    ? null
+                    : _chooseGradientBackground,
+                icon: const Icon(Icons.gradient),
+                label: const Text('Gradient'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isBusy || _isCropping
+                    ? null
+                    : _choosePresetBackground,
+                icon: const Icon(Icons.auto_awesome),
+                label: const Text('Presets'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isBusy || _isCropping
+                    ? null
+                    : () => _applyClipBackground(ClipBackground.none),
+                icon: const Icon(Icons.layers_clear),
+                label: const Text('Remove'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Background settings are saved automatically. Export to apply them to the final video.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _addClip() async {
     try {
       final file = await FilePicker.pickFile(
@@ -386,7 +785,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       start: Duration.zero,
       end: _clips[_selectedClipIndex].duration,
     );
-    setState(() => _timelinePosition = _clipStart(_selectedClipIndex));
+    setState(() => _setTimelinePosition(_clipStart(_selectedClipIndex)));
     _recordEdit(before);
     await _persistProject();
   }
@@ -409,7 +808,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       _selectedClipIndex = 0;
       _trimRange = const TrimRange(start: Duration.zero, end: Duration.zero);
       setState(() {
-        _timelinePosition = Duration.zero;
+        _setTimelinePosition(Duration.zero);
         _isLoading = false;
         _loadError = null;
       });
@@ -437,7 +836,8 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       ..addAll(after);
     _selectedClipIndex = _clips.indexOf(selectedClip);
     setState(
-      () => _timelinePosition = _clipStart(_selectedClipIndex) + localPosition,
+      () =>
+          _setTimelinePosition(_clipStart(_selectedClipIndex) + localPosition),
     );
     _recordEdit(before);
     await _persistProject();
@@ -461,7 +861,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     final secondClip = _clips[firstIndex + 1];
     if (!TimelineOperations.canMerge(firstClip, secondClip)) {
       _showMessage(
-        'Merge requires both clips to use the same rotation and crop.',
+        'Merge requires both clips to use the same rotation, crop, and background.',
       );
       return;
     }
@@ -721,8 +1121,10 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
 
   void _onVideoChanged() {
     if (!mounted) return;
+
     final controller = _controller;
     if (controller == null) return;
+
     if (controller.value.hasError) {
       if (_loadError == null) {
         setState(() {
@@ -737,23 +1139,39 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     final localPosition =
         controller.value.position - _clips[_selectedClipIndex].sourceStart;
     final clip = _clips[_selectedClipIndex];
+
     if (localPosition < _trimRange.start && _isPlaybackActive) {
       controller.seekTo(_trimRange.start);
       return;
     }
+
     if (localPosition >= _trimRange.end &&
         _trimRange.end < clip.duration &&
         _isPlaybackActive) {
       _isPlaybackActive = false;
       controller.pause();
-      setState(() => _timelinePosition = start + _trimRange.end);
+      _setTimelinePosition(start + _trimRange.end);
+      if (mounted) setState(() {});
       return;
     }
+
     if (localPosition >= clip.duration && _isPlaybackActive) {
       if (!_isTransitioning) _advanceToNextClip();
       return;
     }
-    setState(() => _timelinePosition = start + localPosition);
+
+    if (!_isPlaybackActive) {
+      _setTimelinePosition(start + localPosition);
+      return;
+    }
+
+    final now = DateTime.now();
+    if (now.difference(_lastPlaybackUiUpdate).inMilliseconds < 100) {
+      return;
+    }
+
+    _lastPlaybackUiUpdate = now;
+    _setTimelinePosition(start + localPosition);
   }
 
   Future<void> _advanceToNextClip() async {
@@ -764,7 +1182,10 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       if (nextIndex >= _clips.length) {
         _isPlaybackActive = false;
         await _controller?.pause();
-        if (mounted) setState(() => _timelinePosition = _totalDuration);
+        if (mounted) {
+          _setTimelinePosition(_totalDuration);
+          setState(() {});
+        }
         return;
       }
       await _activateClip(nextIndex, autoPlay: true);
@@ -792,7 +1213,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       _loadError = null;
       _selectedClipIndex = index;
       _trimRange = TrimRange(start: Duration.zero, end: _clips[index].duration);
-      _timelinePosition = _clipStart(index) + position;
+      _setTimelinePosition(_clipStart(index) + position);
     });
 
     VideoPlayerController? controller;
@@ -815,6 +1236,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       _controller = controller;
       controller.addListener(_onVideoChanged);
       setState(() => _isLoading = false);
+      unawaited(_refreshNativePreview());
       if (autoPlay) {
         _isPlaybackActive = true;
         await controller.play();
@@ -826,6 +1248,41 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
         _isLoading = false;
         _loadError = _friendlyError(error);
       });
+    }
+  }
+
+  Future<void> _refreshNativePreview() async {
+    if (_nativePreviewSession != null && mounted) {
+      setState(() => _nativePreviewSession = null);
+    } else {
+      _nativePreviewSession = null;
+    }
+  }
+
+  Future<void> _seekNativePreview(Duration position) async {
+    if (!Platform.isAndroid || _nativePreviewSession == null) return;
+    try {
+      await _nativeAiPreviewService.seekTo(position.inMilliseconds);
+    } catch (error) {
+      debugPrint('Native preview seek failed: $error');
+    }
+  }
+
+  Future<void> _playNativePreview() async {
+    if (!Platform.isAndroid || _nativePreviewSession == null) return;
+    try {
+      await _nativeAiPreviewService.play();
+    } catch (error) {
+      debugPrint('Native preview play failed: $error');
+    }
+  }
+
+  Future<void> _pauseNativePreview() async {
+    if (!Platform.isAndroid || _nativePreviewSession == null) return;
+    try {
+      await _nativeAiPreviewService.pause();
+    } catch (error) {
+      debugPrint('Native preview pause failed: $error');
     }
   }
 
@@ -866,12 +1323,10 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
           : localPosition > _trimRange.end
           ? _trimRange.end
           : localPosition;
-      setState(
-        () => _timelinePosition = _clipStart(targetIndex) + boundedPosition,
-      );
-      await _controller!.seekTo(
-        _clips[targetIndex].sourceStart + boundedPosition,
-      );
+      _setTimelinePosition(_clipStart(targetIndex) + boundedPosition);
+      final sourcePosition = _clips[targetIndex].sourceStart + boundedPosition;
+      await _controller!.seekTo(sourcePosition);
+      await _seekNativePreview(sourcePosition);
       return;
     }
     final keepPlaying = _isPlaybackActive;
@@ -895,14 +1350,10 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     final localPosition = position == null ? null : position - clip.sourceStart;
     if (localPosition != null && localPosition < range.start) {
       _controller?.seekTo(clip.sourceStart + range.start);
-      setState(
-        () => _timelinePosition = _clipStart(_selectedClipIndex) + range.start,
-      );
+      _setTimelinePosition(_clipStart(_selectedClipIndex) + range.start);
     } else if (localPosition != null && localPosition > range.end) {
       _controller?.seekTo(clip.sourceStart + range.end);
-      setState(
-        () => _timelinePosition = _clipStart(_selectedClipIndex) + range.end,
-      );
+      _setTimelinePosition(_clipStart(_selectedClipIndex) + range.end);
     }
     unawaited(_persistProject());
   }
@@ -939,12 +1390,13 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       afterClips[_selectedClipIndex] = probed.clip.copyWith(
         rotationDegrees: clip.rotationDegrees,
         crop: clip.crop,
+        background: clip.background,
       );
       final index = _selectedClipIndex;
       _clips
         ..clear()
         ..addAll(afterClips);
-      setState(() => _timelinePosition = _clipStart(index));
+      setState(() => _setTimelinePosition(_clipStart(index)));
       await _activateClip(index);
       _recordEdit(before);
       await _persistProject();
@@ -969,7 +1421,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       _selectedClipIndex = snapshot.selectedClipIndex;
       if (mounted) {
         setState(() {
-          _timelinePosition = snapshot.timelinePosition;
+          _setTimelinePosition(snapshot.timelinePosition);
           _trimRange = snapshot.trimRange;
           _isLoading = false;
           _loadError = null;
@@ -996,35 +1448,9 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     await _activateClip(index, position: localPosition);
     _selectedClipIndex = index;
     _trimRange = range;
-    _timelinePosition = clipStart + localPosition;
+    _setTimelinePosition(clipStart + localPosition);
     if (mounted) setState(() {});
     await _persistProject();
-  }
-
-  Future<void> _togglePlayback() async {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) return;
-    if (controller.value.isPlaying) {
-      _isPlaybackActive = false;
-      await controller.pause();
-    } else {
-      if (_timelinePosition >= _totalDuration) {
-        await _seekToTimeline(Duration.zero);
-      } else if (controller.value.position <
-              _clips[_selectedClipIndex].sourceStart + _trimRange.start ||
-          controller.value.position >=
-              _clips[_selectedClipIndex].sourceStart + _trimRange.end) {
-        await controller.seekTo(
-          _clips[_selectedClipIndex].sourceStart + _trimRange.start,
-        );
-        setState(
-          () => _timelinePosition =
-              _clipStart(_selectedClipIndex) + _trimRange.start,
-        );
-      }
-      _isPlaybackActive = true;
-      await _controller?.play();
-    }
   }
 
   String _formatTime(Duration duration) {
@@ -1041,9 +1467,11 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
 
   @override
   void dispose() {
+    unawaited(_nativeAiPreviewService.dispose().catchError((_) {}));
     _controllerGeneration++;
     _controller?.removeListener(_onVideoChanged);
     _controller?.dispose();
+    _playbackPosition.dispose();
     super.dispose();
   }
 
@@ -1056,7 +1484,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
     final totalSeconds = totalDuration.inMilliseconds > 0
         ? totalDuration.inMilliseconds / 1000
         : 1.0;
-    final positionSeconds = _timelinePosition.inMilliseconds / 1000;
+    final timelineClips = List<VideoClip>.unmodifiable(_clips);
 
     return Scaffold(
       appBar: AppBar(
@@ -1101,263 +1529,310 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            // Main editor workspace scrolls independently from the fixed tool dock.
             Expanded(
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: _previewAspectRatio(value),
-                  child: ColoredBox(
-                    color: Colors.black,
-                    child: _buildPreview(controller, ready),
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: SuggestionBar(
-                suggestions: _visibleSuggestions,
-                onAccept: _acceptSuggestion,
-                onDismiss: _dismissSuggestion,
-              ),
-            ),
-            if (_loadError != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                child: Column(
-                  children: [
-                    Text(
-                      _loadError!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => _activateClip(_selectedClipIndex),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Text(_formatTime(_timelinePosition)),
-                        Expanded(
-                          child: Slider(
-                            key: const ValueKey('video-seek-bar'),
-                            min: 0,
-                            max: totalSeconds,
-                            value: positionSeconds
-                                .clamp(0, totalSeconds)
-                                .toDouble(),
-                            onChanged:
-                                _clips.isNotEmpty && !_isCropping && !_isBusy
-                                ? (seconds) => _seekToTimeline(
-                                    Duration(
-                                      milliseconds: (seconds * 1000).round(),
-                                    ),
-                                  )
-                                : null,
-                          ),
-                        ),
-                        Text(_formatTime(totalDuration)),
-                      ],
-                    ),
-                    IconButton.filledTonal(
-                      key: const ValueKey('video-play-pause'),
-                      tooltip: value?.isPlaying ?? false ? 'Pause' : 'Play',
-                      onPressed: ready && !_isCropping && !_isBusy
-                          ? _togglePlayback
-                          : null,
-                      iconSize: 32,
-                      icon: Icon(
-                        value?.isPlaying ?? false
-                            ? Icons.pause
-                            : Icons.play_arrow,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        OutlinedButton.icon(
-                          key: const ValueKey('merge-selected-clips'),
-                          onPressed:
-                              _clips.length >= 2 && !_isCropping && !_isBusy
-                              ? _mergeAdjacentClips
-                              : null,
-                          icon: const Icon(Icons.merge_type),
-                          label: Text(
-                            _mergeFirstIndex == null
-                                ? 'Select merge pair'
-                                : 'Merge with selected',
-                          ),
-                        ),
-                        OutlinedButton.icon(
-                          key: const ValueKey('rotate-selected-clip'),
-                          onPressed:
-                              _clips.isNotEmpty && !_isCropping && !_isBusy
-                              ? _rotateSelectedClip
-                              : null,
-                          icon: const Icon(Icons.rotate_right),
-                          label: Text(
-                            'Rotate ${_clips.isEmpty ? 0 : (_clips[_selectedClipIndex].rotationDegrees + 90) % 360}\u00B0',
-                          ),
-                        ),
-                        if (!_isCropping)
-                          OutlinedButton.icon(
-                            key: const ValueKey('crop-selected-clip'),
-                            onPressed: _clips.isNotEmpty && !_isBusy
-                                ? _beginCrop
-                                : null,
-                            icon: const Icon(Icons.crop),
-                            label: const Text('Crop'),
-                          )
-                        else ...[
-                          FilledButton(
-                            key: const ValueKey('apply-video-crop'),
-                            onPressed: _applyCrop,
-                            child: const Text('Apply crop'),
-                          ),
-                          TextButton(
-                            key: const ValueKey('cancel-video-crop'),
-                            onPressed: () =>
-                                setState(() => _isCropping = false),
-                            child: const Text('Cancel'),
-                          ),
-                        ],
-                        OutlinedButton.icon(
-                          key: const ValueKey('split-selected-clip'),
-                          onPressed:
-                              !_isCropping &&
-                                  !_isBusy &&
-                                  _clips.isNotEmpty &&
-                                  TimelineOperations.canSplit(
-                                    _clips[_selectedClipIndex],
-                                    _timelinePosition -
-                                        _clipStart(_selectedClipIndex),
-                                  )
-                              ? _splitSelectedClip
-                              : null,
-                          icon: const Icon(Icons.call_split),
-                          label: const Text('Split'),
-                        ),
-                        OutlinedButton.icon(
-                          key: const ValueKey('delete-selected-clip'),
-                          onPressed:
-                              _clips.isNotEmpty && !_isCropping && !_isBusy
-                              ? _deleteSelectedClip
-                              : null,
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('Delete'),
-                        ),
-                        FilledButton.icon(
-                          key: const ValueKey('apply-video-trim'),
-                          onPressed:
-                              !_isCropping &&
-                                  !_isBusy &&
-                                  _clips.isNotEmpty &&
-                                  _trimRange.isValidFor(
-                                    _clips[_selectedClipIndex].duration,
-                                  )
-                              ? _trimSelectedClip
-                              : null,
-                          icon: _isTrimming
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.content_cut),
-                          label: Text(
-                            _isTrimming
-                                ? 'TrimmingÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦'
-                                : 'Trim',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            if (_clips.isNotEmpty) ...[
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                child: Row(
-                  children: [
-                    const Expanded(child: Text('Timeline')),
-                    Text(
-                      '${_clips.length} ${_clips.length == 1 ? 'clip' : 'clips'}',
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: VideoTimeline(
-                  clips: List.unmodifiable(_clips),
-                  selectedClipIndex: _selectedClipIndex,
-                  position: _timelinePosition,
-                  trimRange: _trimRange,
-                  onSeek: _isCropping || _isBusy ? (_) {} : _seekToTimeline,
-                  onClipSelected: _isCropping || _isBusy ? (_) {} : _selectClip,
-                  onTrimChanged: _isCropping || _isBusy
-                      ? (_) {}
-                      : _onTrimRangeChanged,
-                  onReorder: _isCropping || _isBusy ? (_, _) {} : _reorderClips,
-                ),
-              ),
-              if (_savedExports.isNotEmpty)
-                SizedBox(
-                  height: 94,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _savedExports.length,
-                    itemBuilder: (context, index) {
-                      final saved = _savedExports[index];
-                      return Card(
-                        child: InkWell(
-                          onTap: () => Navigator.of(context).push<void>(
-                            MaterialPageRoute<void>(
-                              builder: (_) =>
-                                  SavedVideoPlayerScreen(path: saved.filePath),
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Edited video ${index + 1}'),
-                                Text(
-                                  '${saved.quality.label} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${_formatTime(saved.duration)}',
-                                ),
-                                const Text(
-                                  'Tap to play',
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                              ],
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 300),
+                          child: AspectRatio(
+                            aspectRatio: _previewAspectRatio(value),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: ColoredBox(
+                                color: Colors.black,
+                                child: _buildPreview(controller, ready),
+                              ),
                             ),
                           ),
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: SuggestionBar(
+                        suggestions: _visibleSuggestions,
+                        onAccept: _acceptSuggestion,
+                        onDismiss: _dismissSuggestion,
+                      ),
+                    ),
+                    if (_loadError != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+                        child: Column(
+                          children: [
+                            Text(
+                              _loadError!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: () =>
+                                  _activateClip(_selectedClipIndex),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      )
+                    else ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
+                        child: Row(
+                          children: [
+                            ValueListenableBuilder<Duration>(
+                              valueListenable: _playbackPosition,
+                              builder: (context, position, _) => Text(
+                                _formatTime(position),
+                                style: Theme.of(context).textTheme.labelSmall,
+                              ),
+                            ),
+                            Expanded(
+                              child: ValueListenableBuilder<Duration>(
+                                valueListenable: _playbackPosition,
+                                builder: (context, position, _) => Slider(
+                                  key: const ValueKey('video-seek-bar'),
+                                  min: 0,
+                                  max: totalSeconds,
+                                  value: (position.inMilliseconds / 1000)
+                                      .clamp(0, totalSeconds)
+                                      .toDouble(),
+                                  onChanged:
+                                      _clips.isNotEmpty &&
+                                          !_isCropping &&
+                                          !_isBusy
+                                      ? (seconds) => _seekToTimeline(
+                                          Duration(
+                                            milliseconds: (seconds * 1000)
+                                                .round(),
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              _formatTime(totalDuration),
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton.filledTonal(
+                        key: const ValueKey('video-play-pause'),
+                        tooltip: value?.isPlaying ?? false ? 'Pause' : 'Play',
+                        onPressed: ready && !_isCropping && !_isBusy
+                            ? _togglePlayback
+                            : null,
+                        iconSize: 30,
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(
+                          value?.isPlaying ?? false
+                              ? Icons.pause
+                              : Icons.play_arrow,
+                        ),
+                      ),
+                    ],
+                    if (_clips.isNotEmpty) ...[
+                      const Divider(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+                        child: Row(
+                          children: [
+                            Text(
+                              'Video Timeline',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '${_clips.length} ${_clips.length == 1 ? 'clip' : 'clips'}',
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                        child: ValueListenableBuilder<Duration>(
+                          valueListenable: _playbackPosition,
+                          builder: (context, position, _) => VideoTimeline(
+                            clips: timelineClips,
+                            selectedClipIndex: _selectedClipIndex,
+                            position: position,
+                            trimRange: _trimRange,
+                            onSeek: _isCropping || _isBusy
+                                ? (_) {}
+                                : _seekToTimeline,
+                            onClipSelected: _isCropping || _isBusy
+                                ? (_) {}
+                                : _selectClip,
+                            onTrimChanged: _isCropping || _isBusy
+                                ? (_) {}
+                                : _onTrimRangeChanged,
+                            onReorder: _isCropping || _isBusy
+                                ? (_, _) {}
+                                : _reorderClips,
+                          ),
+                        ),
+                      ),
+                      // Background studio sits directly below the timeline.
+                      _buildAiBackgroundStudio(),
+                      if (_savedExports.isNotEmpty)
+                        SizedBox(
+                          height: 88,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: _savedExports.length,
+                            itemBuilder: (context, index) {
+                              final saved = _savedExports[index];
+                              return Card(
+                                child: InkWell(
+                                  onTap: () => Navigator.of(context).push<void>(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => SavedVideoPlayerScreen(
+                                        path: saved.filePath,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(10),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text('Edited video ${index + 1}'),
+                                        Text(
+                                          '${saved.quality.label} - ${_formatTime(saved.duration)}',
+                                        ),
+                                        const Text(
+                                          'Tap to play',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ],
                 ),
-            ],
+              ),
+            ),
+            if (_clips.isNotEmpty) _buildEditorToolDock(),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditorToolDock() {
+    final tools = <Widget>[
+      OutlinedButton.icon(
+        key: const ValueKey('merge-selected-clips'),
+        onPressed: _clips.length >= 2 && !_isCropping && !_isBusy
+            ? _mergeAdjacentClips
+            : null,
+        icon: const Icon(Icons.merge_type),
+        label: Text(_mergeFirstIndex == null ? 'Merge' : 'Select second clip'),
+      ),
+      OutlinedButton.icon(
+        key: const ValueKey('rotate-selected-clip'),
+        onPressed: _clips.isNotEmpty && !_isCropping && !_isBusy
+            ? _rotateSelectedClip
+            : null,
+        icon: const Icon(Icons.rotate_right),
+        label: Text(
+          'Rotate ${(_clips[_selectedClipIndex].rotationDegrees + 90) % 360}°',
+        ),
+      ),
+      if (!_isCropping)
+        OutlinedButton.icon(
+          key: const ValueKey('crop-selected-clip'),
+          onPressed: !_isBusy ? _beginCrop : null,
+          icon: const Icon(Icons.crop),
+          label: const Text('Crop'),
+        )
+      else ...[
+        FilledButton(
+          key: const ValueKey('apply-video-crop'),
+          onPressed: _applyCrop,
+          child: const Text('Apply crop'),
+        ),
+        TextButton(
+          key: const ValueKey('cancel-video-crop'),
+          onPressed: () => setState(() => _isCropping = false),
+          child: const Text('Cancel'),
+        ),
+      ],
+      ValueListenableBuilder<Duration>(
+        valueListenable: _playbackPosition,
+        builder: (context, position, _) => OutlinedButton.icon(
+          key: const ValueKey('split-selected-clip'),
+          onPressed:
+              !_isCropping &&
+                  !_isBusy &&
+                  TimelineOperations.canSplit(
+                    _clips[_selectedClipIndex],
+                    position - _clipStart(_selectedClipIndex),
+                  )
+              ? _splitSelectedClip
+              : null,
+          icon: const Icon(Icons.call_split),
+          label: const Text('Split'),
+        ),
+      ),
+      OutlinedButton.icon(
+        key: const ValueKey('delete-selected-clip'),
+        onPressed: !_isCropping && !_isBusy ? _deleteSelectedClip : null,
+        icon: const Icon(Icons.delete_outline),
+        label: const Text('Delete'),
+      ),
+      FilledButton.icon(
+        key: const ValueKey('apply-video-trim'),
+        onPressed:
+            !_isCropping &&
+                !_isBusy &&
+                _trimRange.isValidFor(_clips[_selectedClipIndex].duration)
+            ? _trimSelectedClip
+            : null,
+        icon: _isTrimming
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.content_cut),
+        label: Text(_isTrimming ? 'Trimming...' : 'Trim'),
+      ),
+    ];
+
+    return Material(
+      elevation: 8,
+      color: Theme.of(context).colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 68,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            scrollDirection: Axis.horizontal,
+            itemCount: tools.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (context, index) => tools[index],
+          ),
         ),
       ),
     );
@@ -1380,7 +1855,7 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
       final quarterTurns = (clip.rotationDegrees ~/ 90) % 4;
       final media = RotatedBox(
         quarterTurns: quarterTurns,
-        child: VideoPlayer(controller),
+        child: Stack(fit: StackFit.expand, children: [VideoPlayer(controller)]),
       );
       return LayoutBuilder(
         builder: (context, box) {
@@ -1407,9 +1882,12 @@ class _VideoEditorScreenState extends State<VideoEditorScreen> {
                   right: 8,
                   bottom: 12,
                   child: Center(
-                    child: CaptionOverlay(
-                      captions: widget.captions,
-                      positionMs: _timelinePosition.inMilliseconds,
+                    child: ValueListenableBuilder<Duration>(
+                      valueListenable: _playbackPosition,
+                      builder: (context, position, _) => CaptionOverlay(
+                        captions: widget.captions,
+                        positionMs: position.inMilliseconds,
+                      ),
                     ),
                   ),
                 ),

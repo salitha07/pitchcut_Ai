@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pitchcut_ai/features/editor/models/clip_background.dart';
 import 'package:pitchcut_ai/features/editor/models/crop_rect.dart';
 import 'package:pitchcut_ai/features/editor/models/video_clip.dart';
 import 'package:pitchcut_ai/features/editor/models/video_export_state.dart';
@@ -10,12 +11,16 @@ import 'package:pitchcut_ai/features/editor/services/video_export_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
   const control = MethodChannel('pitchcut/editor');
   const events = EventChannel('pitchcut/editor/progress');
   const legacy = MethodChannel('pitchcut_ai/video_trim');
+
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
   final calls = <MethodCall>[];
+
   const clip = VideoClip(
     path: '/source.mp4',
     name: 'source',
@@ -24,10 +29,12 @@ void main() {
 
   setUp(() {
     calls.clear();
+
     messenger.setMockMethodCallHandler(control, (call) async {
       calls.add(call);
       return null;
     });
+
     messenger.setMockMethodCallHandler(legacy, (_) async {
       fail('M5 export must use the shared editor channel');
     });
@@ -55,8 +62,10 @@ void main() {
     'maps ordered edited segments and repeated sources to shared API',
     () async {
       completeExport();
+
       final progress = <double>[];
       final service = VideoExportService();
+
       final output = await service.exportTimeline(
         [
           clip.copyWith(
@@ -70,10 +79,12 @@ void main() {
         VideoExportQuality.p480,
         onProgress: progress.add,
       );
+
       expect(output, '/cache/rendered.mp4');
       expect(progress, [0.25, 1.0]);
       expect(calls, hasLength(1));
       expect(calls.single.method, 'exportTimeline');
+
       expect(calls.single.arguments, {
         'captions': [],
         'targetHeight': 480,
@@ -102,16 +113,42 @@ void main() {
     },
   );
 
+  test('forwards clip background settings to native export API', () async {
+    completeExport();
+
+    const background = ClipBackground(
+      type: ClipBackgroundType.solid,
+      solidColor: 0xFF123456,
+    );
+
+    await VideoExportService().exportTimeline(
+      [clip.copyWith(background: background)],
+      VideoExportQuality.p720,
+      onProgress: (_) {},
+    );
+
+    final arguments = calls.single.arguments as Map;
+    final items = arguments['items'] as List;
+    final firstItem = items.first as Map;
+
+    expect(firstItem['background'], {
+      'type': 'solid',
+      'solidColor': 0xFF123456,
+    });
+  });
+
   for (final quality in VideoExportQuality.values) {
     test(
       'forwards ${quality.label} without changing native settings',
       () async {
         completeExport();
+
         await VideoExportService().exportTimeline(
           [clip],
           quality,
           onProgress: (_) {},
         );
+
         expect(calls.single.arguments['targetHeight'], quality.height);
       },
     );
@@ -129,11 +166,16 @@ void main() {
           ),
         ),
       );
+
       final controller = VideoExportController(backend: VideoExportService());
+
       await controller.start([clip], VideoExportQuality.p720);
+
       expect(controller.state.status, VideoExportStatus.failed);
       expect(controller.state.errorMessage, 'Codec unavailable');
+
       completeExport();
+
       // A fresh service can acquire the shared channel again after failure cleanup.
       expect(
         await VideoExportService().exportTimeline(
@@ -143,6 +185,7 @@ void main() {
         ),
         '/cache/rendered.mp4',
       );
+
       controller.dispose();
     },
   );
@@ -154,12 +197,14 @@ void main() {
         events,
         MockStreamHandler.inline(onListen: (_, _) {}),
       );
+
       messenger.setMockMethodCallHandler(control, (_) async {
         throw PlatformException(
           code: 'FILE_NOT_FOUND',
           message: 'Source missing',
         );
       });
+
       await expectLater(
         VideoExportService().exportTimeline(
           [clip],
@@ -180,40 +225,51 @@ void main() {
   test('cancellation reaches shared native API and allows retry', () async {
     final ready = Completer<void>();
     dynamic sink;
+
     messenger.setMockStreamHandler(
       events,
       MockStreamHandler.inline(
-        onListen: (_, events) {
-          sink = events;
+        onListen: (_, eventSink) {
+          sink = eventSink;
           ready.complete();
         },
       ),
     );
+
     messenger.setMockMethodCallHandler(control, (call) async {
       calls.add(call);
+
       if (call.method == 'cancelExport') {
         sink.error(code: 'CANCELLED', message: 'Export cancelled');
       }
+
       return null;
     });
+
     final service = VideoExportService();
+
     final operation = service.exportTimeline(
       [clip],
       VideoExportQuality.p720,
       onProgress: (_) {},
     );
+
     final cancelled = expectLater(
       operation,
       throwsA(isA<VideoExportCancelled>()),
     );
+
     await ready.future;
     await service.cancelExport();
     await cancelled;
+
     expect(calls.map((call) => call.method), [
       'exportTimeline',
       'cancelExport',
     ]);
+
     completeExport();
+
     expect(
       await service.exportTimeline(
         [clip],
@@ -222,8 +278,11 @@ void main() {
       ),
       '/cache/rendered.mp4',
     );
+
     final callCount = calls.length;
+
     await service.cancelExport();
+
     expect(calls.length, callCount);
   });
 
@@ -231,6 +290,7 @@ void main() {
     'rejects empty and invalid timelines before calling native export',
     () async {
       final service = VideoExportService();
+
       for (final clips in [
         <VideoClip>[],
         [clip.copyWith(rotationDegrees: 45)],
@@ -244,6 +304,7 @@ void main() {
           throwsArgumentError,
         );
       }
+
       expect(calls, isEmpty);
     },
   );
@@ -252,23 +313,31 @@ void main() {
     'adapts M5 minimum crop tolerance to the strict shared contract',
     () async {
       const crop = CropRect(left: 0.3, top: 0.3, right: 0.35, bottom: 0.35);
+
       expect(crop.isValid, isTrue);
+
       completeExport();
+
       await VideoExportService().exportTimeline(
         [clip.copyWith(crop: crop)],
         VideoExportQuality.p720,
         onProgress: (_) {},
       );
+
       final serialized = calls.single.arguments['items'][0]['crop'] as Map;
+
       expect(
         serialized['right'] - serialized['left'],
         greaterThanOrEqualTo(0.05),
       );
+
       expect(
         serialized['bottom'] - serialized['top'],
         greaterThanOrEqualTo(0.05),
       );
+
       expect(serialized['right'], closeTo(crop.right, 2e-9));
+
       expect(serialized['bottom'], closeTo(crop.bottom, 2e-9));
     },
   );
@@ -283,6 +352,7 @@ void main() {
         },
       ),
     );
+
     await expectLater(
       VideoExportService().exportTimeline(
         [clip],

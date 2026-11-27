@@ -1,4 +1,4 @@
-﻿package com.pitchcut.pitchcut_ai.media3
+package com.pitchcut.pitchcut_ai.media3
 
 import android.media.MediaMetadataRetriever
 import android.media.MediaCodecList
@@ -136,6 +136,17 @@ internal object TimelineCompositionBuilder {
             item.crop?.toNdc()?.let { effects.add(Crop(it[0], it[1], it[2], it[3])) }
             effects.add(Presentation.createForWidthAndHeight(width, request.targetHeight,
                 Presentation.LAYOUT_SCALE_TO_FIT))
+            // Apply AI background before captions so captions remain visible.
+            val backgroundBitmap = TimelineBackgroundFactory.create(
+                background = item.background,
+                width = width,
+                height = request.targetHeight
+            )
+
+            if (backgroundBitmap != null) {
+                effects.add(AiBackgroundGlEffect(backgroundBitmap))
+            }
+
             if (request.captions.isNotEmpty()) {
                 checkCancelled()
                 val overlay = CaptionBitmapOverlay(request.captions, clipOffsetMs)

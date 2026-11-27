@@ -1,8 +1,9 @@
-package com.pitchcut.pitchcut_ai.media3
+﻿package com.pitchcut.pitchcut_ai.media3
 
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import io.flutter.embedding.engine.renderer.FlutterRenderer
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -11,18 +12,55 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class EditorMethodHandler(
     private val context: Context,
+    private val flutterRenderer: FlutterRenderer,
     messenger: BinaryMessenger
 ) : MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
 
     companion object {
         const val METHOD_CHANNEL_NAME = "pitchcut/editor"
         const val EVENT_CHANNEL_NAME = "pitchcut/editor/progress"
+        const val PREVIEW_EVENT_CHANNEL_NAME = "pitchcut/editor/preview"
     }
 
     private val methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME)
     private val eventChannel = EventChannel(messenger, EVENT_CHANNEL_NAME)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var eventSink: EventChannel.EventSink? = null
+
+    private val previewEventChannel =
+        EventChannel(messenger, PREVIEW_EVENT_CHANNEL_NAME)
+
+    private var previewEventSink: EventChannel.EventSink? = null
+    private var nativePreviewPlayer: NativeAiPreviewPlayer? = null
+
+    private val previewProgressRunnable = object : Runnable {
+        override fun run() {
+            emitPreviewState()
+            if (previewEventSink != null && nativePreviewPlayer != null) {
+                mainHandler.postDelayed(this, 250L)
+            }
+        }
+    }
+
+    private fun emitPreviewState() {
+        val player = nativePreviewPlayer ?: return
+        previewEventSink?.success(
+            mapOf(
+                "type" to "state",
+                "positionMs" to player.currentPositionMs,
+                "durationMs" to player.durationMs,
+                "isPlaying" to player.isPlaying
+            )
+        )
+    }
+
+    private fun startPreviewUpdates() {
+        mainHandler.removeCallbacks(previewProgressRunnable)
+        if (previewEventSink != null && nativePreviewPlayer != null) {
+            emitPreviewState()
+            mainHandler.postDelayed(previewProgressRunnable, 250L)
+        }
+    }
 
     private val trimService = TrimService(context)
     private val cutService = CutService(context, trimService)
@@ -31,10 +69,27 @@ class EditorMethodHandler(
     private val cropService = CropService(context)
     private val exportService = ExportService(context)
     private val loudnessService = LoudnessService(context)
+    private val backgroundPreviewService = BackgroundPreviewService(mainHandler)
 
     init {
         methodChannel.setMethodCallHandler(this)
         eventChannel.setStreamHandler(this)
+
+        previewEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(
+                arguments: Any?,
+                events: EventChannel.EventSink?
+            ) {
+                previewEventSink = events
+                previewEventSink?.success(mapOf("type" to "ready"))
+                startPreviewUpdates()
+            }
+
+            override fun onCancel(arguments: Any?) {
+                mainHandler.removeCallbacks(previewProgressRunnable)
+                previewEventSink = null
+            }
+        })
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -50,11 +105,97 @@ class EditorMethodHandler(
                 "exportTimeline" -> handleExportTimeline(call, guardedResult)
                 "cancelExport" -> handleCancelExport(guardedResult)
                 "getLoudnessSamples" -> handleGetLoudnessSamples(call, guardedResult)
+                "generateBackgroundPreview" -> handleGenerateBackgroundPreview(call, guardedResult)
+                "createNativePreview" -> handleCreateNativePreview(call, guardedResult)
+                "playNativePreview" -> handlePlayNativePreview(guardedResult)
+                "pauseNativePreview" -> handlePauseNativePreview(guardedResult)
+                "seekNativePreview" -> handleSeekNativePreview(call, guardedResult)
+                "disposeNativePreview" -> handleDisposeNativePreview(guardedResult)
                 else -> guardedResult.notImplemented()
             }
         } catch (error: Exception) {
             ErrorCodes.sendThrowableMethodError(guardedResult, error)
         }
+    }
+
+    private fun handleCreateNativePreview(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        val path = requiredPath(call, "path", result) ?: return
+
+        val background = argument(call, "background") as? Map<*, *> ?: run {
+            sendArgumentError(result, "background must be a map")
+            return
+        }
+
+        nativePreviewPlayer?.release()
+        nativePreviewPlayer = null
+
+        val player = NativeAiPreviewPlayer.create(
+            context = context,
+            renderer = flutterRenderer,
+            path = path,
+            rawBackground = background
+        )
+
+        nativePreviewPlayer = player
+
+        result.success(
+            mapOf(
+                "textureId" to player.textureId,
+                "durationMs" to player.durationMs,
+                "positionMs" to player.currentPositionMs,
+                "isPlaying" to player.isPlaying
+            )
+        )
+
+        startPreviewUpdates()
+    }
+
+    private fun handlePlayNativePreview(result: MethodChannel.Result) {
+        val player = nativePreviewPlayer ?: run {
+            sendArgumentError(result, "Native preview is not initialized")
+            return
+        }
+
+        player.play()
+        result.success(null)
+        emitPreviewState()
+    }
+
+    private fun handlePauseNativePreview(result: MethodChannel.Result) {
+        val player = nativePreviewPlayer ?: run {
+            sendArgumentError(result, "Native preview is not initialized")
+            return
+        }
+
+        player.pause()
+        result.success(null)
+        emitPreviewState()
+    }
+
+    private fun handleSeekNativePreview(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        val player = nativePreviewPlayer ?: run {
+            sendArgumentError(result, "Native preview is not initialized")
+            return
+        }
+
+        val positionMs = requiredLong(call, "positionMs", result) ?: return
+
+        player.seekTo(positionMs)
+        result.success(null)
+        emitPreviewState()
+    }
+
+    private fun handleDisposeNativePreview(result: MethodChannel.Result) {
+        mainHandler.removeCallbacks(previewProgressRunnable)
+        nativePreviewPlayer?.release()
+        nativePreviewPlayer = null
+        result.success(null)
     }
 
     private fun handleTrim(call: MethodCall, result: MethodChannel.Result) {
@@ -165,6 +306,29 @@ class EditorMethodHandler(
         }
     }
 
+    private fun handleGenerateBackgroundPreview(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        val path = requiredPath(call, "path", result) ?: return
+        val timeMs = requiredLong(call, "timeMs", result) ?: return
+        val background = argument(call, "background") as? Map<*, *> ?: run {
+            sendArgumentError(result, "background must be a map")
+            return
+        }
+
+        backgroundPreviewService.generate(path, timeMs, background) { bytes, error ->
+            if (bytes != null) {
+                result.success(bytes)
+            } else {
+                result.error(
+                    "background_preview_failed",
+                    error ?: "Background preview failed",
+                    null
+                )
+            }
+        }
+    }
     private fun handleGetLoudnessSamples(call: MethodCall, result: MethodChannel.Result) {
         val path = requiredPath(call, "path", result) ?: return
         loudnessService.getLoudnessSamples(path, object : LoudnessService.Callback {
@@ -347,6 +511,18 @@ class EditorMethodHandler(
     fun dispose() {
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
+        previewEventChannel.setStreamHandler(null)
+
         eventSink = null
+        previewEventSink = null
+
+        mainHandler.removeCallbacks(previewProgressRunnable)
+
+        nativePreviewPlayer?.release()
+        nativePreviewPlayer = null
+
+        backgroundPreviewService.close()
     }
 }
+
+
